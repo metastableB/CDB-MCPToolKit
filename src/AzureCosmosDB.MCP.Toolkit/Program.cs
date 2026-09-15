@@ -405,13 +405,6 @@ public static class CosmosDbTools
     // OPENAI_EMBEDDING_DEPLOYMENT - Embedding model deployment name (e.g. text-embedding-3-small)
     // Auth uses Entra ID via DefaultAzureCredential (supports Managed Identity and service principals).
 
-    // Shared credential for the native Cosmos tools. Excludes Managed Identity so
-    // that on Azure VMs (where IMDS is present but the VM identity lacks Cosmos
-    // RBAC → "SSO failure") the chain falls through to the developer's Azure CLI
-    // login, matching CosmosClientFactory and the Python retriever.
-    private static DefaultAzureCredential CreateCosmosCredential() =>
-        new(new DefaultAzureCredentialOptions { ExcludeManagedIdentityCredential = true });
-
     [McpServerTool, Description("Lists databases available in the Cosmos DB account.")]
     public static async Task<string> ListDatabases()
     {
@@ -423,7 +416,7 @@ public static class CosmosDbTools
                 return JsonSerializer.Serialize(new { error = "Missing required environment variable COSMOS_ENDPOINT." });
             }
 
-            var credential = CreateCosmosCredential();
+            var credential = new DefaultAzureCredential();
             // ApplicationName is emitted in the Cosmos SDK UserAgent and surfaces in
             // DailyUserAgentSummary telemetry. Format: "AzureCosmosDBMCP-<kebab-tool-name>".
             // When adding a new [McpServerTool], set its own suffix here so per-tool
@@ -473,7 +466,7 @@ public static class CosmosDbTools
                 return JsonSerializer.Serialize(new { error = "Parameter 'databaseId' is required." });
             }
 
-            var credential = CreateCosmosCredential();
+            var credential = new DefaultAzureCredential();
             using var client = new CosmosClient(endpoint, credential, new CosmosClientOptions
             {
                 ApplicationName = "AzureCosmosDBMCP-list-collections"
@@ -525,7 +518,7 @@ public static class CosmosDbTools
                 return JsonSerializer.Serialize(new { error = "Parameter 'n' must be a whole number between 1 and 20." });
             }
 
-            var credential = CreateCosmosCredential();
+            var credential = new DefaultAzureCredential();
             using var client = new CosmosClient(endpoint, credential, new CosmosClientOptions
             {
                 ApplicationName = "AzureCosmosDBMCP-get-recent-documents"
@@ -597,7 +590,7 @@ public static class CosmosDbTools
                 return JsonSerializer.Serialize(new { error = "Invalid property name. Use dot notation with letters, digits, and underscores only (e.g., name or profile.name)." });
             }
 
-            var credential = CreateCosmosCredential();
+            var credential = new DefaultAzureCredential();
             using var client = new CosmosClient(endpoint, credential, new CosmosClientOptions
             {
                 ApplicationName = "AzureCosmosDBMCP-text-search"
@@ -655,7 +648,7 @@ public static class CosmosDbTools
                 return JsonSerializer.Serialize(new { error = "Parameter 'id' is required." });
             }
 
-            var credential = CreateCosmosCredential();
+            var credential = new DefaultAzureCredential();
             using var client = new CosmosClient(endpoint, credential, new CosmosClientOptions
             {
                 ApplicationName = "AzureCosmosDBMCP-find-document-by-id"
@@ -705,7 +698,7 @@ public static class CosmosDbTools
                 return JsonSerializer.Serialize(new { error = "Parameters 'databaseId' and 'containerId' are required." });
             }
 
-            var credential = CreateCosmosCredential();
+            var credential = new DefaultAzureCredential();
             using var client = new CosmosClient(endpoint, credential, new CosmosClientOptions
             {
                 ApplicationName = "AzureCosmosDBMCP-get-approximate-schema"
@@ -882,7 +875,7 @@ public static class CosmosDbTools
                 }
             }
 
-            var credential = CreateCosmosCredential();
+            var credential = new DefaultAzureCredential();
 
             // Generate embedding using the appropriate embedding service
             // (Azure AI Services, OpenAI native, or Azure AI Foundry)
@@ -1039,7 +1032,7 @@ public static class CosmosDbTools
                 }
             }
 
-            var credential = CreateCosmosCredential();
+            var credential = new DefaultAzureCredential();
 
             // Generate embedding using the configured embedding service
             float[] embedding;
