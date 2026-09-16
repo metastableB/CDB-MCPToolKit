@@ -37,20 +37,12 @@ namespace AzureCosmosDB.MCP.Toolkit.Services;
 /// The retriever service owns its own configuration (model endpoint,
 /// <c>ACCOUNT_URI</c>, <c>COSMOS_DATABASE</c>, <c>COSMOS_CORPUS_CONTAINER</c>,
 /// <c>CORPUS_REGISTRY_FILE</c>, <c>AZURE_OPENAI_*</c>, etc.) read from its own
-/// environment / <c>.env</c> file; none of it flows through this process.
+/// environment / <c>.env</c> file.
 /// </para>
 /// </remarks>
 public static class AgenticSearchExecutor
 {
     public const string BaseUrlEnvVar = "COSMOS_RETRIEVER_URL";
-
-    /// <summary>
-    /// Optional JSON map of <c>{ "&lt;database&gt;": "&lt;retriever base url&gt;" }</c>.
-    /// When a request targets a database present in this map, that retriever
-    /// endpoint is used instead of <see cref="BaseUrlEnvVar"/>. Lets different
-    /// databases be served by different retriever deployments.
-    /// </summary>
-    public const string BaseUrlMapEnvVar = "COSMOS_RETRIEVER_URL_MAP";
 
     public const string TimeoutEnvVar = "COSMOS_RETRIEVER_TIMEOUT_S";
 
@@ -60,8 +52,8 @@ public static class AgenticSearchExecutor
 
     private const int BodyTruncateBytes = 4096;
 
-    // A single shared HttpClient with no built-in timeout — each call drives
-    // its own deadline via a linked CancellationTokenSource.
+    // Reuse one HttpClient (avoids socket exhaustion). No global timeout —
+    // each request sets its own timeout instead.
     private static readonly HttpClient HttpClient = new()
     {
         Timeout = Timeout.InfiniteTimeSpan,
@@ -76,22 +68,15 @@ public static class AgenticSearchExecutor
     /// <param name="logger">Logger for request lifecycle events.</param>
     /// <param name="database">Optional Cosmos database override.</param>
     /// <param name="container">Optional Cosmos container override.</param>
-    /// <param name="temperature">Optional LLM sampling temperature (0.0–2.0).</param>
-    /// <param name="maxTurns">Optional cap on agent reasoning turns (1–200).</param>
-    /// <param name="reasoningEffort">Optional reasoning effort ("low"/"medium"/"high").</param>
     /// <param name="schemaOverride">Optional schema override as a JSON object (keys:
     /// document_id_path, chunk_id_path, chunk_order_path, title_path, source_path,
     /// item_id_path, use_dunder_codec), or "none" for pure discovery.</param>
-    /// <param name="searchDisplayLimit">Optional cap on hits surfaced per search (1–50).</param>
-    /// <param name="accountUri">Optional Cosmos account endpoint override for this call.</param>
-    /// <param name="embeddingModel">Optional embedding model/deployment override for this call.</param>
-    /// <param name="embeddingEndpoint">Optional embedding endpoint base URL override for this call.</param>
-    /// <param name="cancellationToken">Cooperative cancellation.</param>
+    /// <param name="cancellationToken">A token the caller can trip to abort the request early.</param>
     /// <returns>
-    /// The service's response body, expected to be a single JSON document. On
-    /// any failure (service unreachable, timed out, non-success status, empty
-    /// body) returns a serialised <c>{ "error": "...", ... }</c> envelope so
-    /// the MCP tool always returns parseable JSON to the caller.
+    /// The service's response body as a single JSON document. On any failure
+    /// (service unreachable, timed out, non-success status, empty body) returns
+    /// a serialised <c>{ "error": "...", ... }</c> envelope so the MCP tool
+    /// always returns parseable JSON to the caller.
     /// </returns>
     /// <remarks>
     /// The optional tuning knobs are forwarded to the retriever service as a
@@ -108,7 +93,7 @@ public static class AgenticSearchExecutor
         string? schemaOverride = null,
         CancellationToken cancellationToken = default)
     {
-        var baseUrl = ResolveBaseUrl(database).TrimEnd('/');
+        var baseUrl = ResolveString(BaseUrlEnvVar, DefaultBaseUrl).TrimEnd('/');
         var timeoutSeconds = ResolveInt(TimeoutEnvVar, DefaultTimeoutSeconds);
         var requestUri = $"{baseUrl}/search";
 
@@ -204,41 +189,6 @@ public static class AgenticSearchExecutor
     {
         var value = Environment.GetEnvironmentVariable(envVar);
         return string.IsNullOrWhiteSpace(value) ? defaultValue : value;
-    }
-
-    // Resolve the retriever base URL for a request, preferring a per-database
-    // override from COSMOS_RETRIEVER_URL_MAP (JSON {"<db>":"<url>"}) and falling
-    // back to COSMOS_RETRIEVER_URL / the built-in default.
-    private static string ResolveBaseUrl(string? database)
-    {
-        if (!string.IsNullOrWhiteSpace(database))
-        {
-            var raw = Environment.GetEnvironmentVariable(BaseUrlMapEnvVar);
-            if (!string.IsNullOrWhiteSpace(raw) && LooksLikeJson(raw))
-            {
-                try
-                {
-                    var map = JsonSerializer.Deserialize<Dictionary<string, string>>(
-                        raw, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                    if (map is not null)
-                    {
-                        foreach (var kv in map)
-                        {
-                            if (string.Equals(kv.Key, database, StringComparison.OrdinalIgnoreCase)
-                                && !string.IsNullOrWhiteSpace(kv.Value))
-                            {
-                                return kv.Value;
-                            }
-                        }
-                    }
-                }
-                catch (JsonException)
-                {
-                    // Malformed map -> fall through to the default endpoint.
-                }
-            }
-        }
-        return ResolveString(BaseUrlEnvVar, defaultValue: DefaultBaseUrl);
     }
 
     private static int ResolveInt(string envVar, int defaultValue)
