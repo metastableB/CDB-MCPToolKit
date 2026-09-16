@@ -1,4 +1,4 @@
-# `agentic_search` — Harness-1 multi-turn retrieval as an MCP tool
+# `agentic_search` — multi-turn retrieval as an MCP tool
 
 `agentic_search` runs the trained **Harness-1** multi-turn search agent
 (`pat-jj/harness-1`, a fine-tuned `openai/gpt-oss-20b` served by vLLM) against
@@ -20,7 +20,7 @@ agent can take 20–40 turns and 30–60 s of wall-clock time.
                                            ▼                                  │
                                       AgenticSearchExecutor ── HTTP POST ───► POST /search  (uvicorn, kept warm)
                                            │                                  │
-                                           │ ◄────── JSON body ──────────────┤
+                                           │ ◄────── JSON body ───────────────┤
                                            │                                  └─► vLLM (Harness-1) + Cosmos DB + embeddings
                                            ▼
                                       MCP tool response
