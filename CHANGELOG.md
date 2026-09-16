@@ -5,26 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.2.0] - 2026-06-18
+## [1.2.0] - 2026-09-16
 
 ### Added
-- **`agentic_search` tool**: Runs a multi-turn retrieval agent against a Cosmos
-  DB corpus and returns ranked, curated documents that best answer the query.
-  Given a query, the agent will (1) issue hybrid (vector + full-text) RRF
-  searches, (2) optionally rerank the hits with Qwen3-Reranker-8B, (3) read full
-  documents, and (4) prune its context across multiple turns. Implemented as a
-  subprocess call into the companion [`cosmos-retriever/`](cosmos-retriever/)
-  Python package; see [`docs/AGENTIC_SEARCH.md`](docs/AGENTIC_SEARCH.md) for the
-  deployment story.
-- Optional `database` and `container` arguments on `agentic_search` so a
-  single MCP server can target multiple Cosmos corpora at request time. When
-  the corpus registry (`CORPUS_REGISTRY` / `CORPUS_REGISTRY_FILE`) is set
-  in the host environment, the matching account, database, and embedding
-  model are picked automatically per call.
-- New service: `AgenticSearchExecutor` (subprocess lifecycle, timeout, error
-  envelope generation).
-- New env vars: `COSMOS_RETRIEVER_PYTHON`, `COSMOS_RETRIEVER_DIR`,
-  `COSMOS_RETRIEVER_TIMEOUT_S` — see [`.env.example`](.env.example).
+- **`agentic_search` tool**: given a natural-language query, runs a multi-turn
+  retrieval agent against a Cosmos DB corpus and returns ranked, curated
+  documents. The agent issues hybrid (vector + full-text) RRF searches,
+  optionally reranks with Qwen3-Reranker-8B, reads full documents, and prunes
+  its context across turns. The agent runs as a separate `cosmos-retriever`
+  FastAPI service; this tool calls it over HTTP. See
+  [`docs/AGENTIC-SEARCH.md`](docs/AGENTIC-SEARCH.md).
+- Optional `database`, `container`, and `schemaOverride` arguments on
+  `agentic_search`, so one MCP server can target different Cosmos corpora per
+  request (via the `CORPUS_REGISTRY` host config).
+- New service `AgenticSearchExecutor`: the HTTP client to the retriever service
+  (timeout and error-envelope handling).
+- New env vars `COSMOS_RETRIEVER_URL` and `COSMOS_RETRIEVER_TIMEOUT_S` — see
+  [`.env.example`](.env.example).
 
 ### Changed
 - `AppState` now also exposes `ILoggerFactory` so static `[McpServerTool]`

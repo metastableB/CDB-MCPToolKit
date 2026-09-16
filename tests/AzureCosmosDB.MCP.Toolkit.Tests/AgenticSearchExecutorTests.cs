@@ -108,7 +108,8 @@ public sealed class AgenticSearchExecutorTests : IDisposable
     [Fact]
     public async Task RunAsync_returns_error_envelope_when_service_unreachable()
     {
-        // Reserve+release a port so nothing is listening on it.
+        // Reserve+release a port so nothing is listening on it. Small race: another
+        // process could bind it before the call — negligible in tests, so not guarded.
         var port = GetFreePort();
         SetEnv(AgenticSearchExecutor.BaseUrlEnvVar, $"http://127.0.0.1:{port}");
         SetEnv(AgenticSearchExecutor.TimeoutEnvVar, "5");
