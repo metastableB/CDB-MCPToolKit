@@ -65,14 +65,7 @@ public sealed class McpToolRequestValidator
                 ["maxDocuments"] = ToolArgumentSchema.Integer(required: false, minValue: 1, maxValue: 50),
                 ["database"] = ToolArgumentSchema.String(required: false, maxLength: 256),
                 ["container"] = ToolArgumentSchema.String(required: false, maxLength: 256),
-                ["temperature"] = ToolArgumentSchema.Number(required: false, minValue: 0.0, maxValue: 2.0),
-                ["maxTurns"] = ToolArgumentSchema.Integer(required: false, minValue: 1, maxValue: 200),
-                ["reasoningEffort"] = ToolArgumentSchema.String(required: false, maxLength: 16),
-                ["schemaOverride"] = ToolArgumentSchema.Object(required: false, maxLength: 2048),
-                ["searchDisplayLimit"] = ToolArgumentSchema.Integer(required: false, minValue: 1, maxValue: 50),
-                ["accountUri"] = ToolArgumentSchema.String(required: false, maxLength: 512),
-                ["embeddingModel"] = ToolArgumentSchema.String(required: false, maxLength: 256),
-                ["embeddingEndpoint"] = ToolArgumentSchema.String(required: false, maxLength: 512)
+                ["schemaOverride"] = ToolArgumentSchema.Object(required: false, maxLength: 2048)
             })
         };
 
