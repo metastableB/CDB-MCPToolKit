@@ -105,14 +105,7 @@ public static class AgenticSearchExecutor
         ILogger logger,
         string? database = null,
         string? container = null,
-        double? temperature = null,
-        int? maxTurns = null,
-        string? reasoningEffort = null,
         string? schemaOverride = null,
-        int? searchDisplayLimit = null,
-        string? accountUri = null,
-        string? embeddingModel = null,
-        string? embeddingEndpoint = null,
         CancellationToken cancellationToken = default)
     {
         var baseUrl = ResolveBaseUrl(database).TrimEnd('/');
@@ -127,13 +120,9 @@ public static class AgenticSearchExecutor
         if (!string.IsNullOrWhiteSpace(database)) payload["database"] = database;
         if (!string.IsNullOrWhiteSpace(container)) payload["container"] = container;
 
-        // Per-request tuning knobs -> the retriever's RuntimeConfig overrides.
-        // Only include knobs the caller actually set; omit the rest so the
-        // service applies its own defaults.
+        // Per-request overrides -> the retriever's RuntimeConfig. Only the schema
+        // override is exposed per call; other tuning stays server-side config.
         var overrides = new Dictionary<string, object?>();
-        if (temperature is not null) overrides["chat_temperature"] = temperature;
-        if (maxTurns is not null) overrides["chat_max_turns"] = maxTurns;
-        if (!string.IsNullOrWhiteSpace(reasoningEffort)) overrides["chat_reasoning_effort"] = reasoningEffort;
         if (!string.IsNullOrWhiteSpace(schemaOverride) && !string.Equals(schemaOverride, "none", StringComparison.OrdinalIgnoreCase))
         {
             // Forward the schema override as a nested JSON object so the retriever
@@ -148,10 +137,6 @@ public static class AgenticSearchExecutor
                 overrides["schema_override"] = schemaOverride;
             }
         }
-        if (searchDisplayLimit is not null) overrides["search_display_limit"] = searchDisplayLimit;
-        if (!string.IsNullOrWhiteSpace(accountUri)) overrides["account_uri"] = accountUri;
-        if (!string.IsNullOrWhiteSpace(embeddingModel)) overrides["openai_embedding_model"] = embeddingModel;
-        if (!string.IsNullOrWhiteSpace(embeddingEndpoint)) overrides["embed_endpoint"] = embeddingEndpoint;
         if (overrides.Count > 0) payload["overrides"] = overrides;
 
         logger.LogInformation(

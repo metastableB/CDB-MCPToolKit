@@ -1100,20 +1100,13 @@ public static class CosmosDbTools
         }
     }
 
-    [McpServerTool, Description("PREFERRED tool for answering knowledge questions from a Cosmos DB corpus. Runs an autonomous multi-turn retrieval agent that plans sub-queries, issues several vector/keyword searches, follows leads across documents, reranks candidates, and returns a curated, ranked set of the most relevant documents with their content. Use this for anything beyond a trivial lookup: complex, ambiguous, multi-part, or multi-hop questions; or whenever one-shot vector_search/text_search might miss relevant context. It is more thorough (but slower) than the single-shot search tools, so prefer it when answer quality matters more than latency. Just pass a natural-language `query`; the agent handles query planning and ranking for you. Optionally pass `container=<name>` to target a registered corpus (see the CORPUS_REGISTRY env var on the host): the matching Cosmos account + database + embedding model is selected automatically per call. With no `container` the default-corpus env vars are used. Use `maxDocuments` to cap how many curated documents are returned. Optional tuning knobs (temperature, maxTurns, reasoningEffort, schemaOverride, searchDisplayLimit) override the retriever's defaults for this call only.")]
+    [McpServerTool, Description("PREFERRED tool for answering knowledge questions from a Cosmos DB corpus. Runs an autonomous multi-turn retrieval agent that plans sub-queries, issues several vector/keyword searches, follows leads across documents, reranks candidates, and returns a curated, ranked set of the most relevant documents with their content. Use this for anything beyond a trivial lookup: complex, ambiguous, multi-part, or multi-hop questions; or whenever one-shot vector_search/text_search might miss relevant context. It is more thorough (but slower) than the single-shot search tools, so prefer it when answer quality matters more than latency. Just pass a natural-language `query`; the agent handles query planning and ranking for you. Optionally pass `container=<name>` to target a registered corpus (see the CORPUS_REGISTRY env var on the host): the matching Cosmos account + database + embedding model is selected automatically per call. With no `container` the default-corpus env vars are used. Use `maxDocuments` to cap how many curated documents are returned. Optionally pass a `schemaOverride` JSON object to describe a container's document structure when live discovery can't infer it.")]
     public static async Task<string> AgenticSearch(
         [Description("Natural-language information need to retrieve documents for.")] string query,
         [Description("Maximum number of curated documents to return (1-50, default 20).")] int maxDocuments = 20,
         [Description("Optional Cosmos database name override (else COSMOS_DATABASE env var).")] string? database = null,
         [Description("Optional Cosmos container to narrow the search to. Omit to search the WHOLE database (all searchable collections) — recommended default.")] string? container = null,
-        [Description("Optional LLM sampling temperature for this call (0.0-2.0). Lower is more deterministic.")] double? temperature = null,
-        [Description("Optional cap on the agent's reasoning/search turns for this call (1-200).")] int? maxTurns = null,
-        [Description("Optional reasoning effort for reasoning models: 'low', 'medium', or 'high'.")] string? reasoningEffort = null,
-        [Description("Optional schema override as a JSON object (keys: document_id_path, chunk_id_path, chunk_order_path, title_path, source_path, item_id_path, use_dunder_codec), or 'none' for pure discovery. Example: {\"document_id_path\":\"/docid\",\"chunk_order_path\":\"/chunk_idx\",\"use_dunder_codec\":true}")] string? schemaOverride = null,
-        [Description("Optional cap on how many hits each internal search surfaces (1-50).")] int? searchDisplayLimit = null,
-        [Description("Optional Cosmos account endpoint URL to target a different account for this call (else the server's configured account). Example: https://<account>.documents.azure.com:443/")] string? accountUri = null,
-        [Description("Optional embedding model/deployment name to use for this call (must match how the target container was embedded).")] string? embeddingModel = null,
-        [Description("Optional embedding endpoint base URL to use for this call, e.g. https://<resource>.services.ai.azure.com/openai/v1 or http://host:port/v1.")] string? embeddingEndpoint = null)
+        [Description("Optional schema override as a JSON object (keys: document_id_path, chunk_id_path, chunk_order_path, title_path, source_path, item_id_path, use_dunder_codec), or 'none' for pure discovery. Example: {\"document_id_path\":\"/docid\",\"chunk_order_path\":\"/chunk_idx\",\"use_dunder_codec\":true}")] string? schemaOverride = null)
     {
         var logger = (AppState.LoggerFactory ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance)
             .CreateLogger("AzureCosmosDB.MCP.Toolkit.CosmosDbTools.AgenticSearch");
@@ -1125,22 +1118,6 @@ public static class CosmosDbTools
         if (maxDocuments < 1 || maxDocuments > 50)
         {
             return JsonSerializer.Serialize(new { error = "Parameter 'maxDocuments' must be between 1 and 50." });
-        }
-        if (temperature is < 0.0 or > 2.0)
-        {
-            return JsonSerializer.Serialize(new { error = "Parameter 'temperature' must be between 0.0 and 2.0." });
-        }
-        if (maxTurns is < 1 or > 200)
-        {
-            return JsonSerializer.Serialize(new { error = "Parameter 'maxTurns' must be between 1 and 200." });
-        }
-        if (searchDisplayLimit is < 1 or > 50)
-        {
-            return JsonSerializer.Serialize(new { error = "Parameter 'searchDisplayLimit' must be between 1 and 50." });
-        }
-        if (reasoningEffort is not null && reasoningEffort is not ("low" or "medium" or "high"))
-        {
-            return JsonSerializer.Serialize(new { error = "Parameter 'reasoningEffort' must be 'low', 'medium', or 'high'." });
         }
         if (schemaOverride is not null && !string.Equals(schemaOverride, "none", StringComparison.OrdinalIgnoreCase))
         {
@@ -1157,18 +1134,8 @@ public static class CosmosDbTools
                 return JsonSerializer.Serialize(new { error = "Parameter 'schemaOverride' must be valid JSON (an object) or 'none'." });
             }
         }
-        if (accountUri is not null && !Uri.TryCreate(accountUri, UriKind.Absolute, out _))
-        {
-            return JsonSerializer.Serialize(new { error = "Parameter 'accountUri' must be an absolute URL, e.g. https://<account>.documents.azure.com:443/." });
-        }
-        if (embeddingEndpoint is not null && !Uri.TryCreate(embeddingEndpoint, UriKind.Absolute, out _))
-        {
-            return JsonSerializer.Serialize(new { error = "Parameter 'embeddingEndpoint' must be an absolute URL." });
-        }
 
         return await AgenticSearchExecutor.RunAsync(
-            query, maxDocuments, logger, database, container,
-            temperature, maxTurns, reasoningEffort, schemaOverride, searchDisplayLimit,
-            accountUri, embeddingModel, embeddingEndpoint);
+            query, maxDocuments, logger, database, container, schemaOverride);
     }
 }
