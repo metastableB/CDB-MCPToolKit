@@ -279,15 +279,21 @@ public class MCPProtocolController : ControllerBase
                                 },
                                 new {
                                     name = "agentic_search",
-                                    description = "PREFERRED tool for answering knowledge questions from a Cosmos DB corpus. Runs an autonomous multi-turn retrieval agent that plans sub-queries, issues several vector/keyword searches, follows leads across documents, reranks candidates, and returns a curated, ranked set of the most relevant documents with their content. Use this for anything beyond a trivial lookup: complex, ambiguous, multi-part, or multi-hop questions; or whenever one-shot vector_search/text_search might miss relevant context. It is more thorough (but slower) than the single-shot search tools, so prefer it when answer quality matters more than latency. Just pass a natural-language `query`; the agent handles query planning and ranking for you. Optionally pass `container=<name>` to target a registered corpus (see the CORPUS_REGISTRY env var on the host): the matching Cosmos account + database + embedding model is selected automatically per call. With no `container`, the default-corpus env vars are used. Use `maxDocuments` to cap how many curated documents are returned.",
+                                    description = "Search using a multi-turn retrieval agent for Cosmos DB: rewrites the query, runs several vector/full-text " +
+                                        "searches, reranks, and returns curated, ranked documents. Prefer it over vector_search/text_search for " +
+                                        "complex, ambiguous, or multi-hop questions where one-shot search might miss context. Pass a natural-language " +
+                                        "`query`; optionally set `database`/`container` to target a corpus and `maxDocuments` to cap results.",
                                     inputSchema = new {
                                         type = "object",
                                         properties = new {
                                             query = new { type = "string", description = "Natural-language information need to retrieve documents for", maxLength = 4096 },
                                             maxDocuments = new { type = "integer", description = "Maximum number of curated documents to return (1-50, default 20)", minimum = 1, maximum = 50, @default = 20 },
                                             database = new { type = "string", description = "Optional Cosmos database override (else COSMOS_DATABASE env var)", maxLength = 256 },
-                                            container = new { type = "string", description = "Optional Cosmos container to narrow to. Omit to search the whole database (all searchable collections).", maxLength = 256 },
-                                            schemaOverride = new { type = "object", description = "Optional schema override as a JSON object (keys: document_id_path, chunk_id_path, chunk_order_path, title_path, source_path, item_id_path, use_dunder_codec). Omit for pure discovery." }
+                                            container = new { type = "string", description = "Optional Cosmos container to narrow to. " +
+                                                "Omit to search the whole database (all searchable collections).", maxLength = 256 },
+                                            schemaOverride = new { type = "object", description = "Optional schema override as a JSON object " +
+                                                "(keys: document_id_path, chunk_id_path, chunk_order_path, title_path, source_path, item_id_path, " +
+                                                "use_dunder_codec). Omit for pure schema discovery." }
                                         },
                                         required = new string[] { "query" },
                                         additionalProperties = false
@@ -525,31 +531,6 @@ public class MCPProtocolController : ControllerBase
         }
         var s = value.ToString();
         return string.IsNullOrWhiteSpace(s) ? null : s;
-    }
-
-    private static int? GetNullableIntArg(Dictionary<string, object> args, string key)
-    {
-        if (!args.TryGetValue(key, out var value)) return null;
-        if (value is int intValue) return intValue;
-        if (int.TryParse(value?.ToString(), out var parsed)) return parsed;
-        return null;
-    }
-
-    private static double? GetNullableDoubleArg(Dictionary<string, object> args, string key)
-    {
-        if (!args.TryGetValue(key, out var value)) return null;
-        if (value is double dblValue) return dblValue;
-        if (value is int intValue) return intValue;
-        if (double.TryParse(value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed)) return parsed;
-        return null;
-    }
-
-    private static bool? GetNullableBoolArg(Dictionary<string, object> args, string key)
-    {
-        if (!args.TryGetValue(key, out var value)) return null;
-        if (value is bool boolValue) return boolValue;
-        if (bool.TryParse(value?.ToString(), out var parsed)) return parsed;
-        return null;
     }
 
     private static int GetRequiredIntArg(Dictionary<string, object> args, string key)
