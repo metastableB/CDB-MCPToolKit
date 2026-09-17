@@ -1,15 +1,16 @@
-"""Exhaustive tests for `cosmos_agentic_retriever.retrieval.expressions`.
+"""Exhaustive tests for `cosmos_agentic_retriever.query_engine.expressions`.
 
 Covers FTS tokenization (Unicode, lowering, dedup, stopwords, term cap, the
 all-stopword degenerate case) and, critically for security, the escaping in
 ``fts_literal_args`` that keeps a hostile term from breaking out of the quoted
 full-text literal it is embedded in.
 """
+
 from __future__ import annotations
 
 import pytest
 
-from cosmos_agentic_retriever.retrieval.expressions import (
+from cosmos_agentic_retriever.query_engine.expressions import (
     _FTS_MAX_TERMS,
     fts_literal_args,
     tokenize_for_fts,
@@ -68,10 +69,9 @@ def test_tokenize_unicode_cjk() -> None:
     assert tokenize_for_fts("机器 学习 机器") == ["机器", "学习"]
 
 
-def test_tokenize_all_stopwords_reduces_to_empty() -> None:
-    # SECURITY / degenerate case: an all-English-stopword query yields zero terms.
-    assert tokenize_for_fts("the and of a to in is it") == []
-    assert tokenize_for_fts("THE AND OF") == []
+def test_tokenize_all_stopwords_falls_back_to_original_terms() -> None:
+    assert tokenize_for_fts("the and of") == ["the", "and", "of"]
+    assert tokenize_for_fts("THE AND OF") == ["the", "and", "of"]
 
 
 def test_tokenize_caps_at_max_terms() -> None:

@@ -1,16 +1,17 @@
-"""Exhaustive tests for `cosmos_agentic_retriever.retrieval.paths`.
+"""Exhaustive tests for `cosmos_agentic_retriever.query_engine.paths`.
 
 Covers CosmosPath.parse (validation + segment rules), render (alias +
 escaping), __str__ / round-trip, frozen-model semantics (immutability,
 equality, hashability), and coerce_path.
 """
+
 from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
 
-from cosmos_agentic_retriever.retrieval.errors import UnsafeCosmosPath
-from cosmos_agentic_retriever.retrieval.paths import CosmosPath, coerce_path
+from cosmos_agentic_retriever.query_engine.errors import UnsafeCosmosPathError
+from cosmos_agentic_retriever.query_engine.paths import CosmosPath, coerce_path
 
 # ═══════════════════════════ parse: identity ══════════════════════════════
 
@@ -25,12 +26,12 @@ def test_parse_returns_same_instance_for_cosmospath() -> None:
 
 @pytest.mark.parametrize("bad", [123, None, ["/a"], b"/a", 1.5, {"a": 1}])
 def test_parse_non_string_raises(bad) -> None:
-    with pytest.raises(UnsafeCosmosPath, match="must be a string"):
+    with pytest.raises(UnsafeCosmosPathError, match="must be a string"):
         CosmosPath.parse(bad)
 
 
 def test_parse_error_includes_type_name() -> None:
-    with pytest.raises(UnsafeCosmosPath, match="got int"):
+    with pytest.raises(UnsafeCosmosPathError, match="got int"):
         CosmosPath.parse(5)
 
 
@@ -39,23 +40,23 @@ def test_parse_error_includes_type_name() -> None:
 
 @pytest.mark.parametrize("raw", ["id", "abc", "c/d", ""])
 def test_parse_requires_leading_slash(raw: str) -> None:
-    with pytest.raises(UnsafeCosmosPath, match="must start with '/'"):
+    with pytest.raises(UnsafeCosmosPathError, match="must start with '/'"):
         CosmosPath.parse(raw)
 
 
 def test_parse_bare_slash_is_empty() -> None:
-    with pytest.raises(UnsafeCosmosPath, match="empty or has a trailing"):
+    with pytest.raises(UnsafeCosmosPathError, match="empty or has a trailing"):
         CosmosPath.parse("/")
 
 
 @pytest.mark.parametrize("raw", ["/a/", "/id/", "/a/b/"])
 def test_parse_rejects_trailing_slash(raw: str) -> None:
-    with pytest.raises(UnsafeCosmosPath, match="empty or has a trailing"):
+    with pytest.raises(UnsafeCosmosPathError, match="empty or has a trailing"):
         CosmosPath.parse(raw)
 
 
 def test_parse_rejects_empty_middle_segment() -> None:
-    with pytest.raises(UnsafeCosmosPath, match="unsafe path segment"):
+    with pytest.raises(UnsafeCosmosPathError, match="unsafe path segment"):
         CosmosPath.parse("/a//b")
 
 
@@ -80,18 +81,18 @@ def test_parse_accepts_valid_paths(raw: str, segments: tuple) -> None:
 @pytest.mark.parametrize(
     "raw",
     [
-        "/1abc",   # leading digit
-        "/ abc",   # leading space
+        "/1abc",  # leading digit
+        "/ abc",  # leading space
         "/.hidden",  # leading dot
-        "/-x",     # leading hyphen
-        "/a@b",    # illegal symbol
+        "/-x",  # leading hyphen
+        "/a@b",  # illegal symbol
         "/caf\u00e9",  # non-ASCII letter
-        "/a/1b",   # bad segment in the middle
-        "/a#",     # illegal symbol
+        "/a/1b",  # bad segment in the middle
+        "/a#",  # illegal symbol
     ],
 )
 def test_parse_rejects_bad_segments(raw: str) -> None:
-    with pytest.raises(UnsafeCosmosPath, match="unsafe path segment"):
+    with pytest.raises(UnsafeCosmosPathError, match="unsafe path segment"):
         CosmosPath.parse(raw)
 
 
@@ -163,5 +164,5 @@ def test_coerce_path_parses_string() -> None:
 
 
 def test_coerce_path_invalid_raises() -> None:
-    with pytest.raises(UnsafeCosmosPath):
+    with pytest.raises(UnsafeCosmosPathError):
         coerce_path("no-leading-slash")

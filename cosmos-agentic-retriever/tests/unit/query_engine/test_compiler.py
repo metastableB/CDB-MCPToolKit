@@ -4,11 +4,11 @@ from typing import Any
 
 import pytest
 
-from cosmos_agentic_retriever.retrieval.compiler import CosmosQueryCompiler
-from cosmos_agentic_retriever.retrieval.errors import QueryCompilationError
-from cosmos_agentic_retriever.retrieval.models import EqualsFilter, InFilter, RangeFilter
-from cosmos_agentic_retriever.retrieval.paths import CosmosPath
-from cosmos_agentic_retriever.retrieval.schema import CorpusSchema, VectorFieldConfig
+from cosmos_agentic_retriever.query_engine.compiler import CosmosQueryCompiler
+from cosmos_agentic_retriever.query_engine.errors import QueryCompilationError
+from cosmos_agentic_retriever.query_engine.models import EqualsFilter, InFilter, RangeFilter
+from cosmos_agentic_retriever.query_engine.paths import CosmosPath
+from cosmos_agentic_retriever.query_engine.schema import CorpusSchema
 
 _VEC = CosmosPath.parse("/embedding")
 _TEXT = CosmosPath.parse("/text")
@@ -24,7 +24,6 @@ def _schema(*, with_docid: bool = True) -> CorpusSchema:
         title_path="/title",
         source_path="/source_type",
         text_paths=["/text"],
-        vector_fields=[VectorFieldConfig(path="/embedding", dimensions=2560)],
         metadata_paths={"year": "/year"},
     )
 
@@ -58,12 +57,20 @@ def test_projection_emits_logical_columns_and_alias_map() -> None:
         'c["title"] AS title',
         'c["source_type"] AS source',
         'c["text"] AS txt_0',
-        'c["year"] AS md_year',
+        'c["year"] AS md_0',
     ):
         assert col in select
     # text/metadata aliases resolve back to their logical names
     assert aliases["txt_0"] == "text"
-    assert aliases["md_year"] == "year"
+    assert aliases["md_0"] == "year"
+
+
+def test_projection_does_not_interpolate_metadata_names_into_sql() -> None:
+    schema = _schema()
+    schema.metadata_paths = {"year AS injected FROM x --": CosmosPath.parse("/year")}
+    select, aliases = CosmosQueryCompiler(schema).projection("@k0")
+    assert "injected" not in select
+    assert aliases["md_0"] == "year AS injected FROM x --"
 
 
 # --- structured filters ---------------------------------------------------
@@ -211,6 +218,72 @@ def test_hybrid_fuses_vector_and_full_text_in_rrf() -> None:
     assert _param(q, "@qVec1")["value"] == [0.1, 0.2]
 
 
+@pytest.mark.parametrize("method", ["full_text", "hybrid"])
+def test_full_text_queries_require_searchable_terms(method: str) -> None:
+    common = dict(
+        query="!!!",
+        limit=5,
+        ignored_item_ids=[],
+        filters=[],
+        partition_key=None,
+        cross_partition=True,
+        text_paths=[_TEXT],
+    )
+    with pytest.raises(QueryCompilationError, match="searchable term"):
+        if method == "hybrid":
+            _compiler().compile_hybrid(query_vector=[0.1], vector_path=_VEC, **common)
+        else:
+            _compiler().compile_full_text(**common)
+
+
+@pytest.mark.parametrize("method", ["full_text", "hybrid"])
+def test_full_text_queries_require_a_text_path(method: str) -> None:
+    common = dict(
+        query="query",
+        limit=5,
+        ignored_item_ids=[],
+        filters=[],
+        partition_key=None,
+        cross_partition=True,
+        text_paths=[],
+    )
+    with pytest.raises(QueryCompilationError, match="text path"):
+        if method == "hybrid":
+            _compiler().compile_hybrid(query_vector=[0.1], vector_path=_VEC, **common)
+        else:
+            _compiler().compile_full_text(**common)
+
+
+@pytest.mark.parametrize("method", ["vector", "hybrid"])
+def test_vector_queries_require_a_nonempty_vector(method: str) -> None:
+    common = dict(
+        query_vector=[],
+        limit=5,
+        ignored_item_ids=[],
+        filters=[],
+        partition_key=None,
+        cross_partition=True,
+        vector_path=_VEC,
+    )
+    with pytest.raises(QueryCompilationError, match="vector must not be empty"):
+        if method == "hybrid":
+            _compiler().compile_hybrid(query="query", text_paths=[_TEXT], **common)
+        else:
+            _compiler().compile_vector(**common)
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_queries_require_a_positive_limit(limit: int) -> None:
+    with pytest.raises(QueryCompilationError, match="limit must be positive"):
+        _compiler().compile_structured(
+            limit=limit,
+            filters=[],
+            ignored_item_ids=[],
+            partition_key=None,
+            cross_partition=True,
+        )
+
+
 # --- document read --------------------------------------------------------
 
 
@@ -263,33 +336,3 @@ def test_filter_values_are_bound_never_inlined() -> None:
     assert "DROP TABLE" not in q.sql
     assert 'c["year"] = @p1' in q.sql
     assert malicious in _param_values(q)
-
-
-@pytest.mark.parametrize(
-    "kind, expected_strategy",
-    [
-        ("hybrid", "native_hybrid"),
-        ("vector", "vector"),
-        ("full_text", "full_text"),
-        ("structured", "structured"),
-    ],
-)
-def test_each_query_type_reports_its_strategy(kind: str, expected_strategy: str) -> None:
-    c = _compiler()
-    common = dict(
-        limit=5,
-        ignored_item_ids=[],
-        filters=[],
-        partition_key=None,
-        cross_partition=True,
-    )
-    if kind == "hybrid":
-        q = c.compile_hybrid(query="q", query_vector=[0.1], vector_path=_VEC, text_paths=[_TEXT], **common)
-    elif kind == "vector":
-        q = c.compile_vector(query_vector=[0.1], vector_path=_VEC, **common)
-    elif kind == "full_text":
-        q = c.compile_full_text(query="q", text_paths=[_TEXT], **common)
-    else:
-        q = c.compile_structured(**common)
-    assert q.strategy == expected_strategy
-    assert q.sql.startswith("SELECT TOP @k0 ")

@@ -5,7 +5,7 @@ description = "Cosmos DB retrieval library for the Azure Cosmos DB MCP Toolkit's
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Cosmos Retriever Contributors" }]
+authors = [{ name = "Cosmos Agentic Retriever Contributors" }]
 keywords = ["retrieval", "rag", "cosmos-db"]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -27,7 +27,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/cosmos-agentic-retriever"
+Homepage = "https://github.com/AzureCosmosDB/MCPToolKit"
 
 [build-system]
 requires = ["hatchling>=1.24"]
@@ -44,15 +44,9 @@ target-version = "py311"
 select = ["E", "F", "I", "B", "UP", "SIM", "N"]
 ignore = ["E501"]  # line length handled by formatter
 
-[tool.ruff.lint.per-file-ignores]
-# Retrieval error names are part of the public error model and intentionally
-# do not use an "Error" suffix.
-"src/cosmos_agentic_retriever/retrieval/errors.py" = ["N818"]
-
 [tool.mypy]
 python_version = "3.11"
 strict = false
 warn_unused_ignores = true
 warn_redundant_casts = true
-ignore_missing_imports = true
 files = ["src/cosmos_agentic_retriever"]

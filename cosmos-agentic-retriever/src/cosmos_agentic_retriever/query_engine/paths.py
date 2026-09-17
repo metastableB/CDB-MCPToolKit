@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import re
@@ -6,13 +5,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from cosmos_agentic_retriever.retrieval.errors import UnsafeCosmosPath
+from cosmos_agentic_retriever.query_engine.errors import UnsafeCosmosPathError
 
 _ALLOWED_SEGMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_ .\-]*$")
 
 
 class CosmosPath(BaseModel):
-
     model_config = ConfigDict(frozen=True)
 
     segments: tuple[str, ...]
@@ -23,16 +21,16 @@ class CosmosPath(BaseModel):
         if isinstance(raw, CosmosPath):
             return raw
         if not isinstance(raw, str):
-            raise UnsafeCosmosPath(f"path must be a string, got {type(raw).__name__}")
+            raise UnsafeCosmosPathError(f"path must be a string, got {type(raw).__name__}")
         if not raw.startswith("/"):
-            raise UnsafeCosmosPath(f"path must start with '/': {raw!r}")
+            raise UnsafeCosmosPathError(f"path must start with '/': {raw!r}")
         if len(raw) < 2 or raw.endswith("/"):
-            raise UnsafeCosmosPath(f"path is empty or has a trailing '/': {raw!r}")
+            raise UnsafeCosmosPathError(f"path is empty or has a trailing '/': {raw!r}")
 
         segments = raw[1:].split("/")
         for seg in segments:
             if seg == "" or not _ALLOWED_SEGMENT.fullmatch(seg):
-                raise UnsafeCosmosPath(f"unsafe path segment {seg!r} in {raw!r}")
+                raise UnsafeCosmosPathError(f"unsafe path segment {seg!r} in {raw!r}")
         return cls(segments=tuple(segments))
 
     def render(self, alias: str = "c") -> str:

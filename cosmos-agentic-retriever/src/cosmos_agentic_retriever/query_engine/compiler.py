@@ -12,37 +12,34 @@ against containers that store their data differently.
 
 One method is provided per search style: nearest-vector search, full-text search,
 the two combined into a single ranked query, a plain filter-only lookup, and
-fetching every chunk of one document. 
+fetching every chunk of one document.
 
-They share the same building blocks: the
-list of columns to return, the WHERE clause, and the id-exclusion list and all
-put user-supplied values into query parameters rather than into the SQL text, so
-untrusted input can never alter the query's structure.
-
-To follow the query's flow through the system, follow the executor file to see the aftermath.
+They share the same building blocks: the list of columns to return, the WHERE
+clause, and the id-exclusion list. Values, vectors, and limits use query
+parameters. Full-text terms use escaped SQL literals because Cosmos DB's
+FullTextScore syntax accepts terms as literal arguments.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from cosmos_agentic_retriever.retrieval.errors import QueryCompilationError
-from cosmos_agentic_retriever.retrieval.expressions import fts_literal_args, tokenize_for_fts
-from cosmos_agentic_retriever.retrieval.models import (
+from cosmos_agentic_retriever.query_engine.errors import QueryCompilationError
+from cosmos_agentic_retriever.query_engine.expressions import fts_literal_args, tokenize_for_fts
+from cosmos_agentic_retriever.query_engine.models import (
     CompiledCosmosQuery,
     EqualsFilter,
     FilterExpression,
     InFilter,
     RangeFilter,
 )
-from cosmos_agentic_retriever.retrieval.paths import CosmosPath
-from cosmos_agentic_retriever.retrieval.schema import CorpusSchema
+from cosmos_agentic_retriever.query_engine.paths import CosmosPath
+from cosmos_agentic_retriever.query_engine.schema import CorpusSchema
 
 _ALIAS = "c"
 
 
 class _ParamBag:
-
     def __init__(self) -> None:
         self.params: list[dict[str, Any]] = []
         self._n = 0
@@ -55,7 +52,6 @@ class _ParamBag:
 
 
 class CosmosQueryCompiler:
-
     def __init__(self, schema: CorpusSchema) -> None:
         self.schema = schema
 
@@ -69,15 +65,20 @@ class CosmosQueryCompiler:
             "title": s.title_path,
             "source": s.source_path,
         }
-        if name in mapping and mapping[name] is not None:
-            return mapping[name]
+        path = mapping.get(name)
+        if path is not None:
+            return path
         if name in s.metadata_paths:
             return s.metadata_paths[name]
         raise QueryCompilationError(f"unknown logical field {name!r}")
 
+    @staticmethod
+    def _limit(bag: _ParamBag, value: int) -> str:
+        if value < 1:
+            raise QueryCompilationError("query limit must be positive")
+        return bag.add(value, prefix="k")
 
     def projection(self, limit_param: str) -> tuple[str, dict[str, str]]:
-        
 
         s = self.schema
         cols: list[str] = []
@@ -100,14 +101,13 @@ class CosmosQueryCompiler:
             alias = f"txt_{i}"
             cols.append(f"{fpath.render(_ALIAS)} AS {alias}")
             aliases[alias] = fname
-        for key, path in s.metadata_paths.items():
-            cols.append(f"{path.render(_ALIAS)} AS md_{key}")
-            aliases[f"md_{key}"] = key
+        for i, (key, path) in enumerate(s.metadata_paths.items()):
+            alias = f"md_{i}"
+            cols.append(f"{path.render(_ALIAS)} AS {alias}")
+            aliases[alias] = key
 
         select = f"SELECT TOP {limit_param} " + ", ".join(cols) + f" FROM {_ALIAS}"
         return select, aliases
-
-
 
     def _compile_filter(self, f: FilterExpression, bag: _ParamBag) -> str:
         path = self._resolve_logical(f.logical_field).render(_ALIAS)
@@ -136,6 +136,14 @@ class CosmosQueryCompiler:
             clauses.append(f"NOT ARRAY_CONTAINS({bag.add(ignored_item_ids)}, {item_id})")
         return (" WHERE " + " AND ".join(clauses)) if clauses else ""
 
+    @staticmethod
+    def _full_text_terms(query: str, text_paths: list[CosmosPath]) -> str:
+        if not text_paths:
+            raise QueryCompilationError("at least one text path is required")
+        terms = tokenize_for_fts(query)
+        if not terms:
+            raise QueryCompilationError("full-text query must contain a searchable term")
+        return fts_literal_args(terms)
 
     def compile_hybrid(
         self,
@@ -150,19 +158,16 @@ class CosmosQueryCompiler:
         vector_path: CosmosPath,
         text_paths: list[CosmosPath],
     ) -> CompiledCosmosQuery:
+        if not query_vector:
+            raise QueryCompilationError("query vector must not be empty")
+        terms = self._full_text_terms(query, text_paths)
         bag = _ParamBag()
-        limit_p = bag.add(limit, prefix="k")
+        limit_p = self._limit(bag, limit)
         vec_p = bag.add(query_vector, prefix="qVec")
         select, aliases = self.projection(limit_p)
         where = self._where(filters, ignored_item_ids, bag)
-        terms = fts_literal_args(tokenize_for_fts(query))
-        fts = ", ".join(
-            f"FullTextScore({tp.render(_ALIAS)}, {terms})" for tp in text_paths
-        )
-        order = (
-            " ORDER BY RANK RRF("
-            f"VectorDistance({vector_path.render(_ALIAS)}, {vec_p}), {fts})"
-        )
+        fts = ", ".join(f"FullTextScore({tp.render(_ALIAS)}, {terms})" for tp in text_paths)
+        order = f" ORDER BY RANK RRF(VectorDistance({vector_path.render(_ALIAS)}, {vec_p}), {fts})"
         return CompiledCosmosQuery(
             sql=select + where + order,
             parameters=bag.params,
@@ -183,8 +188,10 @@ class CosmosQueryCompiler:
         cross_partition: bool,
         vector_path: CosmosPath,
     ) -> CompiledCosmosQuery:
+        if not query_vector:
+            raise QueryCompilationError("query vector must not be empty")
         bag = _ParamBag()
-        limit_p = bag.add(limit, prefix="k")
+        limit_p = self._limit(bag, limit)
         vec_p = bag.add(query_vector, prefix="qVec")
         select, aliases = self.projection(limit_p)
         where = self._where(filters, ignored_item_ids, bag)
@@ -210,17 +217,15 @@ class CosmosQueryCompiler:
         text_paths: list[CosmosPath],
         strategy: str = "full_text",
     ) -> CompiledCosmosQuery:
+        terms = self._full_text_terms(query, text_paths)
         bag = _ParamBag()
-        limit_p = bag.add(limit, prefix="k")
+        limit_p = self._limit(bag, limit)
         select, aliases = self.projection(limit_p)
         where = self._where(filters, ignored_item_ids, bag)
-        terms = fts_literal_args(tokenize_for_fts(query))
         if len(text_paths) == 1:
             order = f" ORDER BY RANK FullTextScore({text_paths[0].render(_ALIAS)}, {terms})"
         else:
-            fts = ", ".join(
-                f"FullTextScore({tp.render(_ALIAS)}, {terms})" for tp in text_paths
-            )
+            fts = ", ".join(f"FullTextScore({tp.render(_ALIAS)}, {terms})" for tp in text_paths)
             order = f" ORDER BY RANK RRF({fts})"
         return CompiledCosmosQuery(
             sql=select + where + order,
@@ -241,7 +246,7 @@ class CosmosQueryCompiler:
         cross_partition: bool,
     ) -> CompiledCosmosQuery:
         bag = _ParamBag()
-        limit_p = bag.add(limit, prefix="k")
+        limit_p = self._limit(bag, limit)
         select, aliases = self.projection(limit_p)
         where = self._where(filters, ignored_item_ids, bag)
         return CompiledCosmosQuery(
@@ -252,8 +257,7 @@ class CosmosQueryCompiler:
             strategy="structured",
             projected_aliases=aliases,
         )
-        
-        
+
     def compile_document_read(
         self,
         *,
@@ -266,7 +270,7 @@ class CosmosQueryCompiler:
         if s.document_id_path is None:
             raise QueryCompilationError("document_id_path is not configured")
         bag = _ParamBag()
-        limit_p = bag.add(max_chunks, prefix="k")   
+        limit_p = self._limit(bag, max_chunks)
         select, aliases = self.projection(limit_p)
         doc_p = bag.add(document_id, prefix="doc")
         where = f" WHERE {s.document_id_path.render(_ALIAS)} = {doc_p}"
