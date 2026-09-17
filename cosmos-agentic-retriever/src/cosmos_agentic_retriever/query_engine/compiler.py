@@ -28,8 +28,8 @@ For example, a year filter becomes c["publication"]["year"] = @p1 in the SQL,
 with {"name": "@p1", "value": 2020} in that list. @p1 is a SQL placeholder:
 Cosmos DB receives its value separately and treats it as data, not SQL code.
 Filter values, IDs, vectors, and limits are supplied this way. Full-text terms
-are quoted and escaped directly in the SQL. The compiler builds commands but
-does not execute them.
+are quoted and escaped directly in the SQL. Note, the compiler builds commands
+but does not execute them.
 """
 
 from __future__ import annotations
@@ -54,6 +54,8 @@ from cosmos_agentic_retriever.query_engine.types import (
 _ALIAS = "c"
 
 
+# Assigns each value a unique SQL placeholder and stores the name/value pair.
+# Example: add(2020) returns "@p0" and records {"name": "@p0", "value": 2020}.
 class _ParamBag:
     def __init__(self) -> None:
         self.params: list[dict[str, Any]] = []
