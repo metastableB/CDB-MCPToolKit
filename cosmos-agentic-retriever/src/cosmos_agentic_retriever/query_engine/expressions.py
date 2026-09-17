@@ -1,3 +1,10 @@
+"""Prepare search text for Cosmos DB's FullTextScore function.
+
+tokenize_for_fts splits text into lowercase, unique terms and keeps at most 30.
+It removes common English words unless that would leave no terms.
+fts_literal_args quotes and escapes the terms for inclusion in SQL.
+"""
+
 from __future__ import annotations
 
 import re
