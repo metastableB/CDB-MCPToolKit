@@ -72,7 +72,7 @@ class CosmosQueryCompiler:
         if path is not None:
             return path
         if name in s.metadata_paths:
-            return s.metadata_paths[name]
+            return CosmosPath.parse(s.metadata_paths[name])
         raise QueryCompilationError(f"unknown logical field {name!r}")
 
     @staticmethod
@@ -83,7 +83,7 @@ class CosmosQueryCompiler:
 
     def projection(self, limit_param: str) -> tuple[str, dict[str, str]]:
 
-        s = self.schema
+        s = CorpusSchema.model_validate(self.schema)
         cols: list[str] = []
         aliases: dict[str, str] = {}
 

@@ -1,14 +1,15 @@
 """Tell the query compiler where IDs and text are stored in each JSON record.
 
-A Cosmos DB item is one stored JSON record. For example:
+Consider the following Cosmos DB item stored as a JSON record.
         {"id": "report-7-0", "docid": "report-7",
          "content": {"text": "Battery recycling..."}}
 
-A field path describes a location inside that record: /id means the top-level
-id field, and /content/text means the text field inside the content object.
-It is not a file path or the value stored in the field.
+A field path, such as `/id`, is used to describe a location inside that record:
+`/id` means the top-level id field, and `/content/text` means the text field
+inside the content object. The CorpusSchema allows us to map arbitrary
+cosmos DB schema into one that the query engine understands.
 
-For the item above, configure CorpusSchema with:
+For the item above, a CorpusSchema can be:
 - item_id_path="/id": the location of this item's identifier, "report-7-0".
 - text_paths=["/content/text"]: the locations of text to include in query
     results, here "Battery recycling...". This is a list because an item may have
@@ -24,13 +25,20 @@ field holding that chunk's position in the report, such as /chunk_idx.
 Only item_id_path is required to construct CorpusSchema. Omitting text_paths
 means no text fields are selected for output, not that text is discovered
 automatically. These settings describe stored data; they do not change it.
+
+Unknown settings are rejected. Replacing a field validates its new value;
+in-place list or dictionary edits are checked again before query compilation.
+Metadata names cannot reuse item_id, document_id, chunk_id, chunk_order, title,
+or source, because those names already have a meaning in compiler filters.
+
+TODO: The schema here feels adhoc and non-generalizable. Revisit this design.
 """
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, BeforeValidator, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 from cosmos_agentic_retriever.query_engine.paths import CosmosPath, coerce_path
 
@@ -38,9 +46,13 @@ PathField = Annotated[CosmosPath, BeforeValidator(coerce_path)]
 
 
 class CorpusSchema(BaseModel):
-    # Path to the item's identifier field, e.g. /id, not an ID like "report-7-0".
+    model_config = ConfigDict(
+        extra="forbid", validate_assignment=True, revalidate_instances="always"
+    )
+
+    # Path to the item's identifier field, e.g. /id.
     item_id_path: PathField
-    # Paths to text fields to return, e.g. ["/title", "/content/text"], not text values.
+    # Paths to text fields to return, e.g. ["/title", "/content/text"].
     text_paths: list[PathField] = Field(default_factory=list)
     # Path to the source document ID shared by its chunks, e.g. /docid.
     document_id_path: PathField | None = None
@@ -55,15 +67,40 @@ class CorpusSchema(BaseModel):
     # Extra fields to return and filter on, e.g. {"year": "/publication/year"}.
     metadata_paths: dict[str, PathField] = Field(default_factory=dict)
 
+    @field_validator("metadata_paths")
+    @classmethod
+    def _check_metadata_names(
+        cls, paths: dict[str, CosmosPath]
+    ) -> dict[str, CosmosPath]:
+        reserved = {
+            "item_id",
+            "document_id",
+            "chunk_id",
+            "chunk_order",
+            "title",
+            "source",
+        }
+        conflicts = reserved.intersection(paths)
+        if conflicts:
+            raise ValueError(
+                f"metadata names are reserved: {', '.join(sorted(conflicts))}"
+            )
+        return paths
+
     @staticmethod
     def _seg_name(path: CosmosPath) -> str:
         return path.segments[-1]
 
     def text_field_map(self) -> dict[str, CosmosPath]:
+        """Name each distinct text path without overwriting an earlier entry."""
         out: dict[str, CosmosPath] = {}
-        for p in self.text_paths:
-            name = self._seg_name(p)
-            if name in out and str(out[name]) != str(p):
-                name = str(p)
-            out[name] = p
+        for path in dict.fromkeys(coerce_path(path) for path in self.text_paths):
+            name = self._seg_name(path)
+            if name in out:
+                name = str(path)
+            suffix = 2
+            while name in out:
+                name = f"{path!s}#{suffix}"
+                suffix += 1
+            out[name] = path
         return out
