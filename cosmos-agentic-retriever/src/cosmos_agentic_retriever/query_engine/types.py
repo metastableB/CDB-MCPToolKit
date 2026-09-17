@@ -6,6 +6,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field
 
 
+# Exceptions raised by path validation and query compilation.
 class RetrievalError(Exception):
     pass
 
@@ -18,6 +19,7 @@ class QueryCompilationError(RetrievalError):
     pass
 
 
+# Field conditions passed to the compiler's filters argument.
 class EqualsFilter(BaseModel):
     kind: Literal["equals"] = "equals"
     logical_field: str
@@ -42,6 +44,7 @@ FilterExpression = Annotated[
 ]
 
 
+# Compiler output: SQL and the values/settings needed to execute it.
 class CompiledCosmosQuery(BaseModel):
     sql: str
     parameters: list[dict[str, Any]] = Field(default_factory=list)
