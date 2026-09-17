@@ -93,8 +93,8 @@ class CosmosQueryCompiler:
 
     @staticmethod
     def _limit(bag: _ParamBag, value: int) -> str:
-        if value < 1:
-            raise QueryCompilationError("query limit must be positive")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise QueryCompilationError("query limit must be a positive integer")
         return bag.add(value, prefix="k")
 
     def projection(self, limit_param: str) -> tuple[str, dict[str, str]]:

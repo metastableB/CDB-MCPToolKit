@@ -188,36 +188,6 @@ def test_no_filters_emits_no_where_clause() -> None:
 # --- vector / full-text / hybrid -----------------------------------------
 
 
-def test_vector_orders_by_vector_distance() -> None:
-    q = _compiler().compile_vector(
-        query_vector=[0.1, 0.2, 0.3],
-        limit=8,
-        ignored_item_ids=[],
-        filters=[],
-        partition_key=None,
-        cross_partition=True,
-        vector_path=_VEC,
-    )
-    assert q.strategy == "vector"
-    assert 'ORDER BY VectorDistance(c["embedding"], @qVec1)' in q.sql
-    assert _param(q, "@qVec1")["value"] == [0.1, 0.2, 0.3]
-
-
-def test_full_text_single_path_uses_rank_fulltextscore() -> None:
-    q = _compiler().compile_full_text(
-        query="the quick brown fox",
-        limit=5,
-        ignored_item_ids=[],
-        filters=[],
-        partition_key=None,
-        cross_partition=True,
-        text_paths=[_TEXT],
-    )
-    assert q.strategy == "full_text"
-    # stopword "the" dropped; remaining terms rendered as quoted literals
-    assert 'ORDER BY RANK FullTextScore(c["text"], "quick", "brown", "fox")' in q.sql
-
-
 def test_full_text_multiple_paths_uses_rank_rrf() -> None:
     q = _compiler().compile_full_text(
         query="quick brown",
@@ -231,26 +201,6 @@ def test_full_text_multiple_paths_uses_rank_rrf() -> None:
     assert "ORDER BY RANK RRF(" in q.sql
     assert 'FullTextScore(c["text"], "quick", "brown")' in q.sql
     assert 'FullTextScore(c["body"], "quick", "brown")' in q.sql
-
-
-def test_hybrid_fuses_vector_and_full_text_in_rrf() -> None:
-    q = _compiler().compile_hybrid(
-        query="quick brown",
-        query_vector=[0.1, 0.2],
-        limit=7,
-        ignored_item_ids=[],
-        filters=[],
-        partition_key=None,
-        cross_partition=True,
-        vector_path=_VEC,
-        text_paths=[_TEXT],
-    )
-    assert q.strategy == "native_hybrid"
-    assert (
-        'ORDER BY RANK RRF(VectorDistance(c["embedding"], @qVec1), '
-        'FullTextScore(c["text"], "quick", "brown"))'
-    ) in q.sql
-    assert _param(q, "@qVec1")["value"] == [0.1, 0.2]
 
 
 @pytest.mark.parametrize("method", ["compile_full_text", "compile_hybrid"])
@@ -340,31 +290,153 @@ def test_vector_queries_require_a_nonempty_vector(method: str) -> None:
             _compiler().compile_vector(**common)
 
 
-@pytest.mark.parametrize("limit", [0, -1])
-def test_queries_require_a_positive_limit(limit: int) -> None:
-    with pytest.raises(QueryCompilationError, match="limit must be positive"):
-        _compiler().compile_structured(
+def _compile_contract_query(
+    method: str,
+    limit: Any,
+    partition_key: Any = "tenant-a",
+    cross_partition: bool = False,
+):
+    schema = CorpusSchema(
+        item_id_path="/id",
+        document_id_path="/docid",
+        text_paths=["/text"],
+        metadata_paths={"year": "/publication/year", "category": "/category"},
+    )
+    arguments: dict[str, Any] = {
+        "partition_key": partition_key,
+        "cross_partition": cross_partition,
+    }
+    if method == "compile_document_read":
+        arguments.update(document_id="doc-1", max_chunks=limit)
+    else:
+        arguments.update(
             limit=limit,
-            filters=[],
-            ignored_item_ids=[],
-            partition_key=None,
-            cross_partition=True,
+            ignored_item_ids=["skip-1"],
+            filters=[
+                EqualsFilter(logical_field="category", value="report"),
+                RangeFilter(logical_field="year", minimum=2000, maximum=2020),
+            ],
         )
+    if method in ("compile_vector", "compile_hybrid"):
+        arguments.update(query_vector=[0.1, 0.2], vector_path=_VEC)
+    if method in ("compile_full_text", "compile_hybrid"):
+        arguments.update(query="the battery recycling", text_paths=[_TEXT])
+    return getattr(CosmosQueryCompiler(schema), method)(**arguments)
+
+
+_COMPILE_METHODS = [
+    "compile_vector",
+    "compile_full_text",
+    "compile_hybrid",
+    "compile_structured",
+    "compile_document_read",
+]
+
+
+@pytest.mark.parametrize("method", _COMPILE_METHODS)
+@pytest.mark.parametrize(
+    "limit", [0, -1, True, False, 1.5, float("nan"), float("inf"), "5", None]
+)
+def test_queries_require_a_positive_integer_limit(method: str, limit: Any) -> None:
+    with pytest.raises(QueryCompilationError, match="limit must be a positive integer"):
+        _compile_contract_query(method, limit)
+
+
+@pytest.mark.parametrize(
+    "partition_key, cross_partition", [("tenant-a", False), (0, True)]
+)
+@pytest.mark.parametrize(
+    "method, condition, ordering, bindings, strategy",
+    [
+        (
+            "compile_vector",
+            'c["category"] = @p2 AND (c["publication"]["year"] >= @p3 AND c["publication"]["year"] <= @p4) AND NOT ARRAY_CONTAINS(@p5, c["id"])',
+            ' ORDER BY VectorDistance(c["embedding"], @qVec1)',
+            [
+                ("@k0", 1),
+                ("@qVec1", [0.1, 0.2]),
+                ("@p2", "report"),
+                ("@p3", 2000),
+                ("@p4", 2020),
+                ("@p5", ["skip-1"]),
+            ],
+            "vector",
+        ),
+        (
+            "compile_full_text",
+            'c["category"] = @p1 AND (c["publication"]["year"] >= @p2 AND c["publication"]["year"] <= @p3) AND NOT ARRAY_CONTAINS(@p4, c["id"])',
+            ' ORDER BY RANK FullTextScore(c["text"], "battery", "recycling")',
+            [
+                ("@k0", 1),
+                ("@p1", "report"),
+                ("@p2", 2000),
+                ("@p3", 2020),
+                ("@p4", ["skip-1"]),
+            ],
+            "full_text",
+        ),
+        (
+            "compile_hybrid",
+            'c["category"] = @p2 AND (c["publication"]["year"] >= @p3 AND c["publication"]["year"] <= @p4) AND NOT ARRAY_CONTAINS(@p5, c["id"])',
+            ' ORDER BY RANK RRF(VectorDistance(c["embedding"], @qVec1), FullTextScore(c["text"], "battery", "recycling"))',
+            [
+                ("@k0", 1),
+                ("@qVec1", [0.1, 0.2]),
+                ("@p2", "report"),
+                ("@p3", 2000),
+                ("@p4", 2020),
+                ("@p5", ["skip-1"]),
+            ],
+            "native_hybrid",
+        ),
+        (
+            "compile_structured",
+            'c["category"] = @p1 AND (c["publication"]["year"] >= @p2 AND c["publication"]["year"] <= @p3) AND NOT ARRAY_CONTAINS(@p4, c["id"])',
+            "",
+            [
+                ("@k0", 1),
+                ("@p1", "report"),
+                ("@p2", 2000),
+                ("@p3", 2020),
+                ("@p4", ["skip-1"]),
+            ],
+            "structured",
+        ),
+        (
+            "compile_document_read",
+            'c["docid"] = @doc1',
+            "",
+            [("@k0", 1), ("@doc1", "doc-1")],
+            "document_read",
+        ),
+    ],
+)
+def test_complete_compiled_query_contract(
+    method, condition, ordering, bindings, strategy, partition_key, cross_partition
+) -> None:
+    result = _compile_contract_query(method, 1, partition_key, cross_partition)
+    expected_select = (
+        'SELECT TOP @k0 c["id"] AS item_id, c["docid"] AS document_id, '
+        'c["text"] AS txt_0, c["publication"]["year"] AS md_0, '
+        'c["category"] AS md_1 FROM c'
+    )
+    assert result.sql == expected_select + " WHERE " + condition + ordering
+    assert result.parameters == [
+        {"name": name, "value": value} for name, value in bindings
+    ]
+    assert result.partition_key == partition_key
+    assert result.enable_cross_partition_query is cross_partition
+    assert result.strategy == strategy
+    assert result.projected_aliases == {
+        "item_id": "item_id",
+        "document_id": "document_id",
+        "txt_0": "text",
+        "md_0": "year",
+        "md_1": "category",
+    }
 
 
 # --- document read --------------------------------------------------------
-
-
-def test_document_read_filters_by_document_id() -> None:
-    q = _compiler().compile_document_read(
-        document_id="doc-1",
-        max_chunks=50,
-        partition_key=None,
-        cross_partition=True,
-    )
-    assert q.strategy == "document_read"
-    assert 'WHERE c["docid"] = @doc1' in q.sql
-    assert _param(q, "@doc1")["value"] == "doc-1"
 
 
 def test_document_read_without_document_id_path_raises() -> None:
