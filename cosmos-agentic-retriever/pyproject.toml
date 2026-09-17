@@ -6,7 +6,6 @@ dependencies = [
   "azure-cosmos>=4.7,<5",
   "pydantic>=2.7,<3",
   "structlog>=24,<27",
-  "tenacity>=8,<10",
 ]
 
 [project.optional-dependencies]

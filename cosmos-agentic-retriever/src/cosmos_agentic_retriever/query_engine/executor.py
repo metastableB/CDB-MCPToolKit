@@ -1,15 +1,10 @@
-"""Run a compiled query against Cosmos DB and hand back the rows.
+"""Execute compiled Cosmos queries and collect their rows.
 
-Once a search has been turned into SQL (for details on how that is done, refer to
-the compiler), this module is what actually sends it to Cosmos DB and collects the
-results. It is the last step before raw rows flow back into the retriever.
-
-Running a query here comes with three safeguards. Transient failures are retried
-automatically with growing pauses between attempts, so a momentary hiccup doesn't
-sink a request. The number of queries allowed to run at the same time is capped,
-so a burst of searches can't overwhelm the account; the cap defaults to a sensible
-value and can be raised or lowered through an environment variable. And any query
-that takes unusually long is logged, to make slow spots easy to spot.
+The supplied Cosmos client owns request retries. Errors propagate unchanged;
+this module does not restart queries or return partially collected results.
+COSMOS_QUERY_MAX_CONCURRENCY, read at import, limits active queries across executor
+instances in this process (default 8). The slot stays held while rows are fetched.
+Successful calls taking over 4.5 seconds, including time waiting for a slot, are logged.
 """
 
 from __future__ import annotations
@@ -20,9 +15,7 @@ import time
 from typing import Any
 
 import structlog
-import tenacity
 from azure.cosmos import ContainerProxy
-from azure.cosmos.exceptions import CosmosHttpResponseError
 
 from cosmos_agentic_retriever.query_engine.types import CompiledCosmosQuery
 
@@ -39,7 +32,9 @@ def _read_positive_int_env(name: str, default: int) -> int:
         logger.warning("invalid_int_env", name=name, value=raw, default=default)
         return default
     if value < 1:
-        logger.warning("invalid_positive_int_env", name=name, value=raw, default=default)
+        logger.warning(
+            "invalid_positive_int_env", name=name, value=raw, default=default
+        )
         return default
     return value
 
@@ -48,23 +43,6 @@ COSMOS_QUERY_MAX_CONCURRENCY = _read_positive_int_env("COSMOS_QUERY_MAX_CONCURRE
 _COSMOS_QUERY_SEMAPHORE = threading.BoundedSemaphore(COSMOS_QUERY_MAX_CONCURRENCY)
 
 
-def _is_retryable_cosmos_error(exc: BaseException) -> bool:
-    if not isinstance(exc, CosmosHttpResponseError):
-        return False
-    status = getattr(exc, "status_code", None)
-    return status in (408, 429, 449, 500, 502, 503, 504)
-
-
-@tenacity.retry(
-    stop=tenacity.stop_after_attempt(5),
-    wait=tenacity.wait_exponential(multiplier=1, min=4, max=15),
-    retry=tenacity.retry_if_exception(_is_retryable_cosmos_error),
-    before_sleep=lambda retry_state: logger.warning(
-        "retry_cosmos_query",
-        attempt=retry_state.attempt_number,
-        error=str(retry_state.outcome.exception()) if retry_state.outcome else None,
-    ),
-)
 def _query_items(
     container: ContainerProxy,
     query: str,
@@ -92,7 +70,6 @@ def _query_items(
 
 
 class CosmosExecutor:
-
     def __init__(self, container: ContainerProxy) -> None:
         self._container = container
 

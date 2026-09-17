@@ -10,8 +10,9 @@ This module (a) exposes a restricted set of searches methods into python and (b)
 converts these to safe, valid database queries. Each method returns a
 CompiledCosmosQuery containing the SQL command and its parameter values. A
 CorpusSchema specifies where fields such as text, document IDs, and metadata are
-stored in Cosmos DB items.  This package constructs the command; it does not
-send it or retrieve results.
+stored in Cosmos DB items. The compiler constructs the command without sending it.
+To execute it, import CosmosExecutor from cosmos_agentic_retriever.query_engine.executor,
+construct it with a Cosmos container client, and pass the compiled query to run().
 
 The following query methods and filters are supported. The compile_* methods
 belong to CosmosQueryCompiler; the filter types are imported from this package:
