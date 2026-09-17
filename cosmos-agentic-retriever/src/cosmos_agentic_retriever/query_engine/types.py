@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
+# TODO: Is pydantic justified here? Isn't dataclass cleaner?
 from pydantic import BaseModel, Field
 
 

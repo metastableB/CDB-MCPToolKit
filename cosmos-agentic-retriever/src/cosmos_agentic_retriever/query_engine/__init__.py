@@ -40,15 +40,15 @@ combined with AND. compile_document_read takes a document ID instead.
 from __future__ import annotations
 
 from cosmos_agentic_retriever.query_engine.compiler import CosmosQueryCompiler
-from cosmos_agentic_retriever.query_engine.models import (
+from cosmos_agentic_retriever.query_engine.paths import CosmosPath
+from cosmos_agentic_retriever.query_engine.schema import CorpusSchema
+from cosmos_agentic_retriever.query_engine.types import (
     CompiledCosmosQuery,
     EqualsFilter,
     FilterExpression,
     InFilter,
     RangeFilter,
 )
-from cosmos_agentic_retriever.query_engine.paths import CosmosPath
-from cosmos_agentic_retriever.query_engine.schema import CorpusSchema
 
 __all__ = [
     "CompiledCosmosQuery",
