@@ -98,23 +98,8 @@ class CosmosQueryCompiler:
         return bag.add(value, prefix="k")
 
     def projection(self, limit_param: str) -> tuple[str, dict[str, str]]:
-        """Choose which fields a query returns and name them in the result.
-
-        Read the field locations from this compiler's CorpusSchema. Include
-        configured ID, title, source, text, and metadata fields. Skip optional
-        fields whose paths are None.
-
-        Return a pair: the SELECT TOP ... FROM c SQL fragment and a dictionary
-        explaining its output names. For item_id_path="/id" and
-        text_paths=["/content/text"], projection("@k0") produces:
-            SELECT TOP @k0 c["id"] AS item_id, c["content"]["text"] AS txt_0 FROM c
-            {"item_id": "item_id", "txt_0": "text"}
-        AS txt_0 names the returned text field; the dictionary maps that name
-        back to the schema's text-field name.
-
-        limit_param is a SQL placeholder such as @k0, not the numeric limit.
-        The calling compile method records its value separately in _ParamBag.
-        This method does not add filters, rank items, or execute the query.
+        """Build SQL that selects a subset of fields from each Cosmos DB record,
+        based on the fields specified by CorpusSchema.
         """
         s = CorpusSchema.model_validate(self.schema)
         cols: list[str] = []
