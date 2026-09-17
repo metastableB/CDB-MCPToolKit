@@ -10,8 +10,7 @@ CosmosQueryCompiler provides Python methods that turn search arguments into
 Cosmos DB SQL commands. The following methods are supported:
   - compile_vector: rank items by distance from a supplied query vector.
   - compile_full_text: rank items by relevance to text in specified fields.
-    - compile_hybrid: combine vector and full-text rankings using reciprocal rank
-        fusion (RRF).
+  - compile_hybrid: combine vector and full-text rankings using reciprocal rank fusion (RRF).
   - compile_structured: select items using field filters, without search ranking.
   - compile_document_read: select chunks belonging to a document ID, up to a limit.
 
@@ -23,10 +22,14 @@ The first four methods additionally accept a list of filters:
 Multiple filters are combined with AND.
 
 CorpusSchema maps filter names to stored fields. For example, "year" can refer
-to /publication/year. Each method returns a CompiledCosmosQuery containing SQL
-and separate parameter values. Filter values, IDs, vectors, and limits use
-parameters. Full-text terms are quoted and escaped in the SQL. The compiler
-builds commands but does not execute them.
+to /publication/year. Each method returns a CompiledCosmosQuery with the SQL
+command in its sql field and a list of placeholder values in its parameters field.
+For example, a year filter becomes c["publication"]["year"] = @p1 in the SQL,
+with {"name": "@p1", "value": 2020} in that list. @p1 is a SQL placeholder:
+Cosmos DB receives its value separately and treats it as data, not SQL code.
+Filter values, IDs, vectors, and limits are supplied this way. Full-text terms
+are quoted and escaped directly in the SQL. The compiler builds commands but
+does not execute them.
 """
 
 from __future__ import annotations
