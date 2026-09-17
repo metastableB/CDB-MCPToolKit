@@ -5,12 +5,12 @@ from typing import Any
 import pytest
 
 from cosmos_agentic_retriever.query_engine.compiler import CosmosQueryCompiler
-from cosmos_agentic_retriever.query_engine.errors import QueryCompilationError
 from cosmos_agentic_retriever.query_engine.paths import CosmosPath
 from cosmos_agentic_retriever.query_engine.schema import CorpusSchema
 from cosmos_agentic_retriever.query_engine.types import (
     EqualsFilter,
     InFilter,
+    QueryCompilationError,
     RangeFilter,
 )
 

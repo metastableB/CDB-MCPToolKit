@@ -24,7 +24,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from cosmos_agentic_retriever.query_engine.errors import QueryCompilationError
 from cosmos_agentic_retriever.query_engine.expressions import (
     fts_literal_args,
     tokenize_for_fts,
@@ -36,6 +35,7 @@ from cosmos_agentic_retriever.query_engine.types import (
     EqualsFilter,
     FilterExpression,
     InFilter,
+    QueryCompilationError,
     RangeFilter,
 )
 

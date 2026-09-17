@@ -44,7 +44,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from cosmos_agentic_retriever.query_engine.errors import UnsafeCosmosPathError
+from cosmos_agentic_retriever.query_engine.types import UnsafeCosmosPathError
 
 _ALLOWED_SEGMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_ .\-]*$")
 

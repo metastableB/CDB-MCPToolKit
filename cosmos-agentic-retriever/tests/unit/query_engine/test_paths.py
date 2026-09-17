@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from cosmos_agentic_retriever.query_engine.errors import UnsafeCosmosPathError
 from cosmos_agentic_retriever.query_engine.paths import CosmosPath, coerce_path
+from cosmos_agentic_retriever.query_engine.types import UnsafeCosmosPathError
 
 # ═══════════════════════════ parse: identity ══════════════════════════════
 

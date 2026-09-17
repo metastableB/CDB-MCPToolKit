@@ -6,6 +6,18 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field
 
 
+class RetrievalError(Exception):
+    pass
+
+
+class UnsafeCosmosPathError(RetrievalError):
+    pass
+
+
+class QueryCompilationError(RetrievalError):
+    pass
+
+
 class EqualsFilter(BaseModel):
     kind: Literal["equals"] = "equals"
     logical_field: str
