@@ -6,7 +6,11 @@ import pytest
 
 from cosmos_agentic_retriever.query_engine.compiler import CosmosQueryCompiler
 from cosmos_agentic_retriever.query_engine.errors import QueryCompilationError
-from cosmos_agentic_retriever.query_engine.models import EqualsFilter, InFilter, RangeFilter
+from cosmos_agentic_retriever.query_engine.models import (
+    EqualsFilter,
+    InFilter,
+    RangeFilter,
+)
 from cosmos_agentic_retriever.query_engine.paths import CosmosPath
 from cosmos_agentic_retriever.query_engine.schema import CorpusSchema
 
@@ -36,7 +40,9 @@ def _param(q: Any, name: str) -> dict[str, Any]:
     for p in q.parameters:
         if p["name"] == name:
             return p
-    raise AssertionError(f"no bound parameter {name!r} in {[p['name'] for p in q.parameters]}")
+    raise AssertionError(
+        f"no bound parameter {name!r} in {[p['name'] for p in q.parameters]}"
+    )
 
 
 def _param_values(q: Any) -> list[Any]:
@@ -220,15 +226,15 @@ def test_hybrid_fuses_vector_and_full_text_in_rrf() -> None:
 
 @pytest.mark.parametrize("method", ["full_text", "hybrid"])
 def test_full_text_queries_require_searchable_terms(method: str) -> None:
-    common = dict(
-        query="!!!",
-        limit=5,
-        ignored_item_ids=[],
-        filters=[],
-        partition_key=None,
-        cross_partition=True,
-        text_paths=[_TEXT],
-    )
+    common = {
+        "query": "!!!",
+        "limit": 5,
+        "ignored_item_ids": [],
+        "filters": [],
+        "partition_key": None,
+        "cross_partition": True,
+        "text_paths": [_TEXT],
+    }
     with pytest.raises(QueryCompilationError, match="searchable term"):
         if method == "hybrid":
             _compiler().compile_hybrid(query_vector=[0.1], vector_path=_VEC, **common)
@@ -238,15 +244,15 @@ def test_full_text_queries_require_searchable_terms(method: str) -> None:
 
 @pytest.mark.parametrize("method", ["full_text", "hybrid"])
 def test_full_text_queries_require_a_text_path(method: str) -> None:
-    common = dict(
-        query="query",
-        limit=5,
-        ignored_item_ids=[],
-        filters=[],
-        partition_key=None,
-        cross_partition=True,
-        text_paths=[],
-    )
+    common = {
+        "query": "query",
+        "limit": 5,
+        "ignored_item_ids": [],
+        "filters": [],
+        "partition_key": None,
+        "cross_partition": True,
+        "text_paths": [],
+    }
     with pytest.raises(QueryCompilationError, match="text path"):
         if method == "hybrid":
             _compiler().compile_hybrid(query_vector=[0.1], vector_path=_VEC, **common)
@@ -256,15 +262,15 @@ def test_full_text_queries_require_a_text_path(method: str) -> None:
 
 @pytest.mark.parametrize("method", ["vector", "hybrid"])
 def test_vector_queries_require_a_nonempty_vector(method: str) -> None:
-    common = dict(
-        query_vector=[],
-        limit=5,
-        ignored_item_ids=[],
-        filters=[],
-        partition_key=None,
-        cross_partition=True,
-        vector_path=_VEC,
-    )
+    common = {
+        "query_vector": [],
+        "limit": 5,
+        "ignored_item_ids": [],
+        "filters": [],
+        "partition_key": None,
+        "cross_partition": True,
+        "vector_path": _VEC,
+    }
     with pytest.raises(QueryCompilationError, match="vector must not be empty"):
         if method == "hybrid":
             _compiler().compile_hybrid(query="query", text_paths=[_TEXT], **common)

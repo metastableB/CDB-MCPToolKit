@@ -24,7 +24,9 @@ class InFilter(BaseModel):
     values: list[Any]
 
 
-FilterExpression = Annotated[EqualsFilter | RangeFilter | InFilter, Field(discriminator="kind")]
+FilterExpression = Annotated[
+    EqualsFilter | RangeFilter | InFilter, Field(discriminator="kind")
+]
 
 
 class CompiledCosmosQuery(BaseModel):

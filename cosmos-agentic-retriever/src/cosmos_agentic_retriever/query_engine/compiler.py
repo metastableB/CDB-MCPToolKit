@@ -25,7 +25,10 @@ from __future__ import annotations
 from typing import Any
 
 from cosmos_agentic_retriever.query_engine.errors import QueryCompilationError
-from cosmos_agentic_retriever.query_engine.expressions import fts_literal_args, tokenize_for_fts
+from cosmos_agentic_retriever.query_engine.expressions import (
+    fts_literal_args,
+    tokenize_for_fts,
+)
 from cosmos_agentic_retriever.query_engine.models import (
     CompiledCosmosQuery,
     EqualsFilter,
@@ -133,7 +136,9 @@ class CosmosQueryCompiler:
         clauses = [self._compile_filter(f, bag) for f in filters]
         if ignored_item_ids:
             item_id = self.schema.item_id_path.render(_ALIAS)
-            clauses.append(f"NOT ARRAY_CONTAINS({bag.add(ignored_item_ids)}, {item_id})")
+            clauses.append(
+                f"NOT ARRAY_CONTAINS({bag.add(ignored_item_ids)}, {item_id})"
+            )
         return (" WHERE " + " AND ".join(clauses)) if clauses else ""
 
     @staticmethod
@@ -142,7 +147,9 @@ class CosmosQueryCompiler:
             raise QueryCompilationError("at least one text path is required")
         terms = tokenize_for_fts(query)
         if not terms:
-            raise QueryCompilationError("full-text query must contain a searchable term")
+            raise QueryCompilationError(
+                "full-text query must contain a searchable term"
+            )
         return fts_literal_args(terms)
 
     def compile_hybrid(
@@ -166,7 +173,9 @@ class CosmosQueryCompiler:
         vec_p = bag.add(query_vector, prefix="qVec")
         select, aliases = self.projection(limit_p)
         where = self._where(filters, ignored_item_ids, bag)
-        fts = ", ".join(f"FullTextScore({tp.render(_ALIAS)}, {terms})" for tp in text_paths)
+        fts = ", ".join(
+            f"FullTextScore({tp.render(_ALIAS)}, {terms})" for tp in text_paths
+        )
         order = f" ORDER BY RANK RRF(VectorDistance({vector_path.render(_ALIAS)}, {vec_p}), {fts})"
         return CompiledCosmosQuery(
             sql=select + where + order,
@@ -223,9 +232,13 @@ class CosmosQueryCompiler:
         select, aliases = self.projection(limit_p)
         where = self._where(filters, ignored_item_ids, bag)
         if len(text_paths) == 1:
-            order = f" ORDER BY RANK FullTextScore({text_paths[0].render(_ALIAS)}, {terms})"
+            order = (
+                f" ORDER BY RANK FullTextScore({text_paths[0].render(_ALIAS)}, {terms})"
+            )
         else:
-            fts = ", ".join(f"FullTextScore({tp.render(_ALIAS)}, {terms})" for tp in text_paths)
+            fts = ", ".join(
+                f"FullTextScore({tp.render(_ALIAS)}, {terms})" for tp in text_paths
+            )
             order = f" ORDER BY RANK RRF({fts})"
         return CompiledCosmosQuery(
             sql=select + where + order,

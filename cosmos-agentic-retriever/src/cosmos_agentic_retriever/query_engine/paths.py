@@ -21,7 +21,9 @@ class CosmosPath(BaseModel):
         if isinstance(raw, CosmosPath):
             return raw
         if not isinstance(raw, str):
-            raise UnsafeCosmosPathError(f"path must be a string, got {type(raw).__name__}")
+            raise UnsafeCosmosPathError(
+                f"path must be a string, got {type(raw).__name__}"
+            )
         if not raw.startswith("/"):
             raise UnsafeCosmosPathError(f"path must start with '/': {raw!r}")
         if len(raw) < 2 or raw.endswith("/"):
