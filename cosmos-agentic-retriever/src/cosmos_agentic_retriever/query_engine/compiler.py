@@ -1,23 +1,32 @@
-"""Build Cosmos DB SQL queries for the retriever.
+"""Build Cosmos DB SQL commands for various search types.
 
-A search request in this system is described in high-level terms: find the
-nearest vectors, match this text, keep only rows that pass these filters, skip
-these ids, return this many. This module translates such a request into the exact
-Cosmos DB SQL string and parameter list needed to run it.
+In agentic retrieval, an agent receives a natural-language question and chooses
+the searches needed to answer it. For example, "How has battery recycling
+changed since 2020?" might require a keyword search for "battery recycling", a
+vector search for related material, a year filter, and a lookup of the chunks
+belonging to a relevant document.
 
-Requests speak in logical field names: "title", "document_id", "chunk_id" and
-so on rather than raw document paths. The compiler looks each name up in the
-corpus schema to find where that field actually lives, so the same request works
-against containers that store their data differently.
+CosmosQueryCompiler provides Python methods that turn search arguments into
+Cosmos DB SQL commands. The following methods are supported:
+  - compile_vector: rank items by distance from a supplied query vector.
+  - compile_full_text: rank items by relevance to text in specified fields.
+    - compile_hybrid: combine vector and full-text rankings using reciprocal rank
+        fusion (RRF).
+  - compile_structured: select items using field filters, without search ranking.
+  - compile_document_read: select chunks belonging to a document ID, up to a limit.
 
-One method is provided per search style: nearest-vector search, full-text search,
-the two combined into a single ranked query, a plain filter-only lookup, and
-fetching every chunk of one document.
+The first four methods additionally accept a list of filters:
+- EqualsFilter: require a field to equal a value.
+- RangeFilter: require a field to fall within inclusive lower or upper bounds.
+- InFilter: require a field's value to belong to a supplied list.
 
-They share the same building blocks: the list of columns to return, the WHERE
-clause, and the id-exclusion list. Values, vectors, and limits use query
-parameters. Full-text terms use escaped SQL literals because Cosmos DB's
-FullTextScore syntax accepts terms as literal arguments.
+Multiple filters are combined with AND.
+
+CorpusSchema maps filter names to stored fields. For example, "year" can refer
+to /publication/year. Each method returns a CompiledCosmosQuery containing SQL
+and separate parameter values. Filter values, IDs, vectors, and limits use
+parameters. Full-text terms are quoted and escaped in the SQL. The compiler
+builds commands but does not execute them.
 """
 
 from __future__ import annotations
