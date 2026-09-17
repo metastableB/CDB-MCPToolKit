@@ -37,6 +37,7 @@ from __future__ import annotations
 from typing import Any
 
 from cosmos_agentic_retriever.query_engine.full_text_terms import (
+    DEFAULT_MAX_FTS_TERMS,
     fts_literal_args,
     tokenize_for_fts,
 )
@@ -54,8 +55,9 @@ from cosmos_agentic_retriever.query_engine.types import (
 _ALIAS = "c"
 
 
-# Assigns each value a unique SQL placeholder and stores the name/value pair.
-# Example: add(2020) returns "@p0" and records {"name": "@p0", "value": 2020}.
+# Maps SQL placeholder names to filter values, IDs, query vectors, and result
+# limits.  Example: add(2020) records {"name": "@p0", "value": 2020} and returns
+# "@p0".
 class _ParamBag:
     def __init__(self) -> None:
         self.params: list[dict[str, Any]] = []
@@ -96,7 +98,24 @@ class CosmosQueryCompiler:
         return bag.add(value, prefix="k")
 
     def projection(self, limit_param: str) -> tuple[str, dict[str, str]]:
+        """Choose which fields a query returns and name them in the result.
 
+        Read the field locations from this compiler's CorpusSchema. Include
+        configured ID, title, source, text, and metadata fields. Skip optional
+        fields whose paths are None.
+
+        Return a pair: the SELECT TOP ... FROM c SQL fragment and a dictionary
+        explaining its output names. For item_id_path="/id" and
+        text_paths=["/content/text"], projection("@k0") produces:
+            SELECT TOP @k0 c["id"] AS item_id, c["content"]["text"] AS txt_0 FROM c
+            {"item_id": "item_id", "txt_0": "text"}
+        AS txt_0 names the returned text field; the dictionary maps that name
+        back to the schema's text-field name.
+
+        limit_param is a SQL placeholder such as @k0, not the numeric limit.
+        The calling compile method records its value separately in _ParamBag.
+        This method does not add filters, rank items, or execute the query.
+        """
         s = CorpusSchema.model_validate(self.schema)
         cols: list[str] = []
         aliases: dict[str, str] = {}
@@ -156,10 +175,15 @@ class CosmosQueryCompiler:
         return (" WHERE " + " AND ".join(clauses)) if clauses else ""
 
     @staticmethod
-    def _full_text_terms(query: str, text_paths: list[CosmosPath]) -> str:
+    def _full_text_terms(
+        query: str,
+        text_paths: list[CosmosPath],
+        *,
+        max_terms: int = DEFAULT_MAX_FTS_TERMS,
+    ) -> str:
         if not text_paths:
             raise QueryCompilationError("at least one text path is required")
-        terms = tokenize_for_fts(query)
+        terms = tokenize_for_fts(query, max_terms=max_terms)
         if not terms:
             raise QueryCompilationError(
                 "full-text query must contain a searchable term"
@@ -178,10 +202,12 @@ class CosmosQueryCompiler:
         cross_partition: bool,
         vector_path: CosmosPath,
         text_paths: list[CosmosPath],
+        max_terms: int = DEFAULT_MAX_FTS_TERMS,
     ) -> CompiledCosmosQuery:
+        """Build hybrid SQL, using at most max_terms text terms (default 30)."""
         if not query_vector:
             raise QueryCompilationError("query vector must not be empty")
-        terms = self._full_text_terms(query, text_paths)
+        terms = self._full_text_terms(query, text_paths, max_terms=max_terms)
         bag = _ParamBag()
         limit_p = self._limit(bag, limit)
         vec_p = bag.add(query_vector, prefix="qVec")
@@ -239,8 +265,10 @@ class CosmosQueryCompiler:
         cross_partition: bool,
         text_paths: list[CosmosPath],
         strategy: str = "full_text",
+        max_terms: int = DEFAULT_MAX_FTS_TERMS,
     ) -> CompiledCosmosQuery:
-        terms = self._full_text_terms(query, text_paths)
+        """Build full-text SQL, using at most max_terms text terms (default 30)."""
+        terms = self._full_text_terms(query, text_paths, max_terms=max_terms)
         bag = _ParamBag()
         limit_p = self._limit(bag, limit)
         select, aliases = self.projection(limit_p)
