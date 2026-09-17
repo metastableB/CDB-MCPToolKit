@@ -79,6 +79,26 @@ def test_projection_does_not_interpolate_metadata_names_into_sql() -> None:
     assert aliases["md_0"] == "year AS injected FROM x --"
 
 
+def test_compiler_preserves_literal_slashes_in_schema_paths() -> None:
+    schema = CorpusSchema(
+        item_id_path="/id",
+        text_paths=['/"document/title"', "/document/title"],
+    )
+    compiled = CosmosQueryCompiler(schema).compile_full_text(
+        query="battery recycling",
+        limit=5,
+        filters=[],
+        ignored_item_ids=[],
+        partition_key=None,
+        cross_partition=True,
+        text_paths=schema.text_paths,
+    )
+    assert 'c["document/title"] AS txt_0' in compiled.sql
+    assert 'c["document"]["title"] AS txt_1' in compiled.sql
+    assert 'FullTextScore(c["document/title"],' in compiled.sql
+    assert 'FullTextScore(c["document"]["title"],' in compiled.sql
+
+
 # --- structured filters ---------------------------------------------------
 
 

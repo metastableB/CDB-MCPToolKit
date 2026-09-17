@@ -21,6 +21,14 @@ def test_parse_returns_same_instance_for_cosmospath() -> None:
     assert CosmosPath.parse(p) is p
 
 
+@pytest.mark.parametrize("segments", [(), ("",), ("", "title"), ("document", "")])
+def test_direct_construction_rejects_empty_paths_and_names(
+    segments: tuple[str, ...],
+) -> None:
+    with pytest.raises(UnsafeCosmosPathError, match="empty"):
+        CosmosPath(segments=segments)
+
+
 # ═══════════════════════════ parse: type errors ═══════════════════════════
 
 
@@ -112,8 +120,6 @@ def test_render_single_segment() -> None:
 
 
 def test_render_escapes_quote_and_backslash() -> None:
-    # Segments with quotes/backslashes can't come from parse, but render must
-    # still escape them safely when a CosmosPath is built directly.
     assert CosmosPath(segments=('a"b',)).render() == 'c["a\\"b"]'
     assert CosmosPath(segments=("a\\b",)).render() == 'c["a\\\\b"]'
     assert CosmosPath(segments=('\\"',)).render() == 'c["\\\\\\""]'
@@ -130,6 +136,72 @@ def test_str_reconstructs_path() -> None:
 def test_parse_str_round_trip() -> None:
     p = CosmosPath.parse("/a/b.c/d e")
     assert CosmosPath.parse(str(p)) == p
+
+
+@pytest.mark.parametrize(
+    "segments, encoded",
+    [
+        (("document", "title"), "/document/title"),
+        (("document/title",), '/"document/title"'),
+        (("document", "title/label"), '/document/"title/label"'),
+        (("2020_sales",), '/"2020_sales"'),
+        (("caf\u00e9",), '/"caf\u00e9"'),
+        (("a~b",), '/"a~b"'),
+        (('a"b',), '/"a\\"b"'),
+        (("a\\b",), '/"a\\\\b"'),
+        (("a\nb",), '/"a\\nb"'),
+    ],
+)
+def test_quoted_path_round_trip(segments: tuple[str, ...], encoded: str) -> None:
+    path = CosmosPath(segments=segments)
+    assert str(path) == encoded
+    assert CosmosPath.parse(encoded) == path
+    assert coerce_path(encoded) == path
+
+
+def test_literal_slash_and_nested_fields_remain_distinct() -> None:
+    literal = CosmosPath.parse('/"document/title"')
+    nested = CosmosPath.parse("/document/title")
+    assert literal.render() == 'c["document/title"]'
+    assert nested.render() == 'c["document"]["title"]'
+    assert literal != nested
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '/"unterminated',
+        '/"a"trailing',
+        '/"a"/"b"trailing',
+        '/"a"/',
+        '/"a"//b',
+        '/""',
+        r'/"a\q"',
+        '/"a\nb"',
+        "/*",
+        "/a/[]/?",
+    ],
+)
+def test_parse_rejects_malformed_quoted_paths_and_index_patterns(raw: str) -> None:
+    with pytest.raises(UnsafeCosmosPathError):
+        CosmosPath.parse(raw)
+
+
+def test_quoted_plain_names_are_normalized() -> None:
+    path = CosmosPath.parse('/"document"/"title"')
+    assert str(path) == "/document/title"
+    assert path == CosmosPath.parse(str(path))
+
+
+def test_quoted_pointer_escape_is_a_literal_field_name() -> None:
+    path = CosmosPath.parse('/"a~1b"')
+    assert path.segments == ("a~1b",)
+    assert path.render() == 'c["a~1b"]'
+
+
+def test_render_escapes_control_characters() -> None:
+    path = CosmosPath.parse('/"a\\nb"')
+    assert path.render() == 'c["a\\nb"]'
 
 
 # ═══════════════════════════════ model semantics ══════════════════════════
