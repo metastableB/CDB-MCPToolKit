@@ -3,7 +3,25 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 # TODO: Is pydantic justified here? Isn't dataclass cleaner?
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class QueryEngineConfig(BaseModel):
+    """Query engine configuration
+
+    Contains only settings, not clients or locks. Each executor creates its own
+    concurrency limiter from these values. Reuse an executor to share its limit.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    max_concurrency: int = Field(default=8, strict=True, gt=0)
+    slow_query_warning_seconds: float = Field(
+        default=4.5,
+        strict=True,
+        gt=0,
+        allow_inf_nan=False,
+    )
 
 
 # Exceptions raised by path validation and query compilation.

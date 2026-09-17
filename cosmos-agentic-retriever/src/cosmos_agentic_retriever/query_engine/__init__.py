@@ -10,9 +10,11 @@ This module (a) exposes a restricted set of searches methods into python and (b)
 converts these to safe, valid database queries. Each method returns a
 CompiledCosmosQuery containing the SQL command and its parameter values. A
 CorpusSchema specifies where fields such as text, document IDs, and metadata are
-stored in Cosmos DB items. The compiler constructs the command without sending it.
-To execute it, import CosmosExecutor from cosmos_agentic_retriever.query_engine.executor,
-construct it with a Cosmos container client, and pass the compiled query to run().
+stored in Cosmos DB items. The compiler constructs the command without executing it.
+To execute it, import CosmosExecutor from cosmos_agentic_retriever.query_engine,
+construct it with QueryEngineConfig, and pass the compiled query and a Cosmos
+container client to run(). Reuse the same executor across calls that need one
+combined query limit, including calls to different containers.
 
 The following query methods and filters are supported. The compile_* methods
 belong to CosmosQueryCompiler; the filter types are imported from this package:
@@ -36,11 +38,13 @@ belong to CosmosQueryCompiler; the filter types are imported from this package:
 Pass filter objects through the filters argument of compile_vector,
 compile_full_text, compile_hybrid, or compile_structured. Multiple filters are
 combined with AND. compile_document_read takes a document ID instead.
+
 """
 
 from __future__ import annotations
 
 from cosmos_agentic_retriever.query_engine.compiler import CosmosQueryCompiler
+from cosmos_agentic_retriever.query_engine.executor import CosmosExecutor
 from cosmos_agentic_retriever.query_engine.paths import CosmosPath
 from cosmos_agentic_retriever.query_engine.schema import CorpusSchema
 from cosmos_agentic_retriever.query_engine.types import (
@@ -48,16 +52,19 @@ from cosmos_agentic_retriever.query_engine.types import (
     EqualsFilter,
     FilterExpression,
     InFilter,
+    QueryEngineConfig,
     RangeFilter,
 )
 
 __all__ = [
     "CompiledCosmosQuery",
     "CorpusSchema",
+    "CosmosExecutor",
     "CosmosPath",
     "CosmosQueryCompiler",
     "EqualsFilter",
     "FilterExpression",
     "InFilter",
+    "QueryEngineConfig",
     "RangeFilter",
 ]
