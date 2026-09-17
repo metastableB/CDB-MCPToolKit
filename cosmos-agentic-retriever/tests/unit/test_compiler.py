@@ -4,11 +4,11 @@ from typing import Any
 
 import pytest
 
-from cosmos_retriever.retrieval.compiler import CosmosQueryCompiler
-from cosmos_retriever.retrieval.errors import QueryCompilationError
-from cosmos_retriever.retrieval.models import EqualsFilter, InFilter, RangeFilter
-from cosmos_retriever.retrieval.paths import CosmosPath
-from cosmos_retriever.retrieval.schema import CorpusSchema, VectorFieldConfig
+from cosmos_agentic_retriever.retrieval.compiler import CosmosQueryCompiler
+from cosmos_agentic_retriever.retrieval.errors import QueryCompilationError
+from cosmos_agentic_retriever.retrieval.models import EqualsFilter, InFilter, RangeFilter
+from cosmos_agentic_retriever.retrieval.paths import CosmosPath
+from cosmos_agentic_retriever.retrieval.schema import CorpusSchema, VectorFieldConfig
 
 _VEC = CosmosPath.parse("/embedding")
 _TEXT = CosmosPath.parse("/text")

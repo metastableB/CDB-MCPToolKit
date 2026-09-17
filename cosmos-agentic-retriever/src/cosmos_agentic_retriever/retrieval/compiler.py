@@ -26,17 +26,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from cosmos_retriever.retrieval.errors import QueryCompilationError
-from cosmos_retriever.retrieval.expressions import fts_literal_args, tokenize_for_fts
-from cosmos_retriever.retrieval.models import (
+from cosmos_agentic_retriever.retrieval.errors import QueryCompilationError
+from cosmos_agentic_retriever.retrieval.expressions import fts_literal_args, tokenize_for_fts
+from cosmos_agentic_retriever.retrieval.models import (
     CompiledCosmosQuery,
     EqualsFilter,
     FilterExpression,
     InFilter,
     RangeFilter,
 )
-from cosmos_retriever.retrieval.paths import CosmosPath
-from cosmos_retriever.retrieval.schema import CorpusSchema
+from cosmos_agentic_retriever.retrieval.paths import CosmosPath
+from cosmos_agentic_retriever.retrieval.schema import CorpusSchema
 
 _ALIAS = "c"
 

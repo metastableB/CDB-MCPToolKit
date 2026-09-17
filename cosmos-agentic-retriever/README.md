@@ -1,4 +1,4 @@
-# cosmos-retriever
+# cosmos-agentic-retriever
 
 Retrieval library for the Azure Cosmos DB MCP Toolkit's `agentic_search` tool.
 

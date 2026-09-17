@@ -1,4 +1,4 @@
-"""Exhaustive tests for `cosmos_retriever.retrieval.expressions`.
+"""Exhaustive tests for `cosmos_agentic_retriever.retrieval.expressions`.
 
 Covers FTS tokenization (Unicode, lowering, dedup, stopwords, term cap, the
 all-stopword degenerate case) and, critically for security, the escaping in
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmos_retriever.retrieval.expressions import (
+from cosmos_agentic_retriever.retrieval.expressions import (
     _FTS_MAX_TERMS,
     fts_literal_args,
     tokenize_for_fts,

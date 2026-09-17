@@ -1,4 +1,4 @@
-"""Exhaustive tests for `cosmos_retriever.retrieval.paths`.
+"""Exhaustive tests for `cosmos_agentic_retriever.retrieval.paths`.
 
 Covers CosmosPath.parse (validation + segment rules), render (alias +
 escaping), __str__ / round-trip, frozen-model semantics (immutability,
@@ -9,8 +9,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from cosmos_retriever.retrieval.errors import UnsafeCosmosPath
-from cosmos_retriever.retrieval.paths import CosmosPath, coerce_path
+from cosmos_agentic_retriever.retrieval.errors import UnsafeCosmosPath
+from cosmos_agentic_retriever.retrieval.paths import CosmosPath, coerce_path
 
 # ═══════════════════════════ parse: identity ══════════════════════════════
 

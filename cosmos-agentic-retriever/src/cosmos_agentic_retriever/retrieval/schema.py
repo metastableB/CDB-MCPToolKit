@@ -5,8 +5,8 @@ from typing import Annotated, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, BeforeValidator, model_validator
 
-from cosmos_retriever.retrieval.errors import InvalidCorpusSchema, UnknownField
-from cosmos_retriever.retrieval.paths import CosmosPath, coerce_path
+from cosmos_agentic_retriever.retrieval.errors import InvalidCorpusSchema, UnknownField
+from cosmos_agentic_retriever.retrieval.paths import CosmosPath, coerce_path
 
 PathField = Annotated[CosmosPath, BeforeValidator(coerce_path)]
 

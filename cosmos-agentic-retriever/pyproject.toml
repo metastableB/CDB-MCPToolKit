@@ -1,5 +1,5 @@
 [project]
-name = "cosmos-retriever"
+name = "cosmos-agentic-retriever"
 version = "0.1.0"
 description = "Cosmos DB retrieval library for the Azure Cosmos DB MCP Toolkit's `agentic_search` tool."
 readme = "README.md"
@@ -27,14 +27,14 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/cosmos-retriever"
+Homepage = "https://github.com/your-org/cosmos-agentic-retriever"
 
 [build-system]
 requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/cosmos_retriever"]
+packages = ["src/cosmos_agentic_retriever"]
 
 [tool.ruff]
 line-length = 100
@@ -47,7 +47,7 @@ ignore = ["E501"]  # line length handled by formatter
 [tool.ruff.lint.per-file-ignores]
 # Retrieval error names are part of the public error model and intentionally
 # do not use an "Error" suffix.
-"src/cosmos_retriever/retrieval/errors.py" = ["N818"]
+"src/cosmos_agentic_retriever/retrieval/errors.py" = ["N818"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -55,4 +55,4 @@ strict = false
 warn_unused_ignores = true
 warn_redundant_casts = true
 ignore_missing_imports = true
-files = ["src/cosmos_retriever"]
+files = ["src/cosmos_agentic_retriever"]

@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-from cosmos_retriever.retrieval.models import (
+from cosmos_agentic_retriever.retrieval.models import (
     EqualsFilter,
     GrepRequest,
     InFilter,
@@ -12,8 +12,8 @@ from cosmos_retriever.retrieval.models import (
     RetrievedItem,
     SearchRequest,
 )
-from cosmos_retriever.retrieval.paths import CosmosPath
-from cosmos_retriever.retrieval.schema import (
+from cosmos_agentic_retriever.retrieval.paths import CosmosPath
+from cosmos_agentic_retriever.retrieval.schema import (
     ChunkIdentityCodec,
     CorpusSchema,
     DunderChunkCodec,

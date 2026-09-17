@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from cosmos_retriever.retrieval.errors import UnsafeCosmosPath
+from cosmos_agentic_retriever.retrieval.errors import UnsafeCosmosPath
 
 _ALLOWED_SEGMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_ .\-]*$")
 
