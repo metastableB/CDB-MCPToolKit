@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cosmos_agentic_retriever.query_engine.expressions import (
+from cosmos_agentic_retriever.query_engine.full_text_terms import (
     fts_literal_args,
     tokenize_for_fts,
 )

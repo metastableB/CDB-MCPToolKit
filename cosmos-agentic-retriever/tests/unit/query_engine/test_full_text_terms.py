@@ -1,4 +1,4 @@
-"""Exhaustive tests for `cosmos_agentic_retriever.query_engine.expressions`.
+"""Exhaustive tests for `cosmos_agentic_retriever.query_engine.full_text_terms`.
 
 Covers FTS tokenization (Unicode, lowering, dedup, stopwords, term cap, the
 all-stopword degenerate case) and, critically for security, the escaping in
@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from cosmos_agentic_retriever.query_engine.expressions import (
-    _FTS_MAX_TERMS,
+from cosmos_agentic_retriever.query_engine.full_text_terms import (
+    DEFAULT_MAX_FTS_TERMS,
     fts_literal_args,
     tokenize_for_fts,
 )
@@ -74,20 +74,51 @@ def test_tokenize_all_stopwords_falls_back_to_original_terms() -> None:
     assert tokenize_for_fts("THE AND OF") == ["the", "and", "of"]
 
 
-def test_tokenize_caps_at_max_terms() -> None:
-    query = " ".join(f"w{i}" for i in range(_FTS_MAX_TERMS + 10))
+def test_tokenize_caps_at_default_max_terms() -> None:
+    assert DEFAULT_MAX_FTS_TERMS == 30
+    query = " ".join(f"w{i}" for i in range(DEFAULT_MAX_FTS_TERMS + 10))
     result = tokenize_for_fts(query)
-    assert len(result) == _FTS_MAX_TERMS
-    assert result == [f"w{i}" for i in range(_FTS_MAX_TERMS)]
+    assert len(result) == DEFAULT_MAX_FTS_TERMS
+    assert result == [f"w{i}" for i in range(DEFAULT_MAX_FTS_TERMS)]
 
 
 def test_tokenize_cap_counts_distinct_only() -> None:
     # Duplicates must not consume the term budget.
-    distinct = [f"t{i}" for i in range(_FTS_MAX_TERMS)]
+    distinct = [f"t{i}" for i in range(DEFAULT_MAX_FTS_TERMS)]
     query = " ".join(distinct + distinct + ["extra_beyond_cap"])
     result = tokenize_for_fts(query)
-    assert len(result) == _FTS_MAX_TERMS
+    assert len(result) == DEFAULT_MAX_FTS_TERMS
     assert "extra_beyond_cap" not in result  # cap already reached by distinct set
+
+
+@pytest.mark.parametrize("max_terms", [1, 3, 40])
+def test_tokenize_accepts_per_call_limit(max_terms: int) -> None:
+    terms = [f"term{index}" for index in range(45)]
+    query = " ".join(terms)
+    assert tokenize_for_fts(query, max_terms=max_terms) == terms[:max_terms]
+    assert tokenize_for_fts(query) == terms[:DEFAULT_MAX_FTS_TERMS]
+
+
+def test_custom_limit_applies_after_filtering_and_deduplication() -> None:
+    assert tokenize_for_fts("the battery BATTERY recycling policy", max_terms=2) == [
+        "battery",
+        "recycling",
+    ]
+
+
+def test_custom_limit_applies_to_stopword_fallback() -> None:
+    assert tokenize_for_fts("the and THE of", max_terms=2) == ["the", "and"]
+
+
+@pytest.mark.parametrize("max_terms", [0, -1, 1.5, "3", None, True])
+def test_tokenize_rejects_invalid_limits(max_terms) -> None:
+    with pytest.raises(ValueError, match="max_terms must be a positive integer"):
+        tokenize_for_fts("battery recycling", max_terms=max_terms)
+
+
+def test_term_limit_is_keyword_only() -> None:
+    with pytest.raises(TypeError):
+        tokenize_for_fts("battery recycling", 1)
 
 
 def test_tokenize_injection_characters_are_stripped() -> None:

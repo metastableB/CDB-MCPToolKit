@@ -1,8 +1,8 @@
 """Prepare search text for Cosmos DB's FullTextScore function.
 
-tokenize_for_fts splits text into lowercase, unique terms and keeps at most 30.
-It removes common English words unless that would leave no terms.
-fts_literal_args quotes and escapes the terms for inclusion in SQL.
+tokenize_for_fts splits text into lowercase, unique terms and keeps at most
+max_terms (30 by default). It removes common English words unless that would
+leave no terms. fts_literal_args quotes and escapes the terms for inclusion in SQL.
 """
 
 from __future__ import annotations
@@ -30,10 +30,15 @@ _STOPWORDS = frozenset(
     )
 )
 
-_FTS_MAX_TERMS = 30
+DEFAULT_MAX_FTS_TERMS = 30
 
 
-def tokenize_for_fts(query: str) -> list[str]:
+def tokenize_for_fts(
+    query: str, *, max_terms: int = DEFAULT_MAX_FTS_TERMS
+) -> list[str]:
+    """Prepare search terms, capped by a positive integer max_terms."""
+    if isinstance(max_terms, bool) or not isinstance(max_terms, int) or max_terms < 1:
+        raise ValueError("max_terms must be a positive integer")
     all_terms: list[str] = []
     searchable_terms: list[str] = []
     seen: set[str] = set()
@@ -45,7 +50,7 @@ def tokenize_for_fts(query: str) -> list[str]:
         all_terms.append(term)
         if term not in _STOPWORDS:
             searchable_terms.append(term)
-    return (searchable_terms or all_terms)[:_FTS_MAX_TERMS]
+    return (searchable_terms or all_terms)[:max_terms]
 
 
 def fts_literal_args(terms: list[str]) -> str:
