@@ -4,6 +4,17 @@ The caller supplies a schema, a container with full-text search configured for t
 selected fields, and an executor. Reuse the executor across retrievers to share its
 concurrency limit. This class selects full-text search explicitly; it does not
 discover indexes, generate embeddings, or assemble document chunks.
+
+Usage Example: Assumes container is a configured Cosmos SDK ContainerProxy and
+schema maps its item ID and returned text fields. Only selected text fields need
+the required full-text policy/index. The caller manages the Cosmos client's lifetime.
+
+    executor = CosmosExecutor(config=QueryEngineConfig())
+    retriever = CorpusRetriever(container=container, schema=schema, executor=executor)
+    items = retriever.search(SearchRequest(query="battery recycling", limit=5))
+
+Import CosmosExecutor and QueryEngineConfig from cosmos_agentic_retriever.query_engine,
+CorpusRetriever from this module, and SearchRequest from query_engine.types.
 """
 
 from __future__ import annotations

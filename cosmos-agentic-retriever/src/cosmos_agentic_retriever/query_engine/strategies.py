@@ -64,6 +64,7 @@ class FullTextSearchStrategy(SearchStrategy):
             partition_key=req.partition_key,
             cross_partition=cross,
             text_paths=text_paths,
+            max_terms=req.max_terms,
         )
         rows = ctx.executor.run(compiled, container=ctx.container)
         return normalize_rows(

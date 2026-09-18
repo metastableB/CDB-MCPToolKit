@@ -5,6 +5,8 @@ from typing import Annotated, Any, Literal
 # TODO: Is pydantic justified here? Isn't dataclass cleaner?
 from pydantic import BaseModel, ConfigDict, Field
 
+from cosmos_agentic_retriever.query_engine.full_text_terms import DEFAULT_MAX_FTS_TERMS
+
 
 class QueryEngineConfig(BaseModel):
     """Query engine configuration
@@ -81,8 +83,11 @@ class CompiledCosmosQuery(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    query: str
-    limit: int = 50
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+    query: str = Field(min_length=1)
+    limit: int = Field(default=50, strict=True, gt=0)
+    max_terms: int = Field(default=DEFAULT_MAX_FTS_TERMS, strict=True, gt=0)
     ignored_item_ids: list[str] = Field(default_factory=list)
     filters: list[FilterExpression] = Field(default_factory=list)
     partition_key: Any | None = None

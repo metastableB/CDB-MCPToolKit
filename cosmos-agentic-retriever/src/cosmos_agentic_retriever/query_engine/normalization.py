@@ -38,10 +38,12 @@ def normalize_rows(
     aliases = projected_aliases or {}
     items: list[RetrievedItem] = []
     for index, row in enumerate(rows):
+        if row.get("item_id") is None:
+            raise ValueError("query result must contain a non-null item_id")
         metadata = {
-            key[len("md_") :]: value
+            aliases[key]: value
             for key, value in row.items()
-            if key.startswith("md_")
+            if key.startswith("md_") and key in aliases
         }
         text_fields = row_text_fields(row, aliases)
         display = assemble_text(text_fields, queried_text_fields)
@@ -57,7 +59,7 @@ def normalize_rows(
                 chunk_id=(
                     str(row["chunk_id"]) if row.get("chunk_id") is not None else None
                 ),
-                chunk_order=chunk_order if isinstance(chunk_order, int) else None,
+                chunk_order=chunk_order if type(chunk_order) is int else None,
                 text=display,
                 text_fields=text_fields,
                 title=row.get("title"),

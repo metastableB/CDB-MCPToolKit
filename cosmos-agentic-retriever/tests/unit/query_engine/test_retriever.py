@@ -1,13 +1,29 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import Mock
 
+import pytest
+from azure.cosmos import ContainerProxy
+from azure.cosmos.exceptions import CosmosHttpResponseError
+from pydantic import ValidationError
+
+from cosmos_agentic_retriever.query_engine import (
+    CorpusSchema,
+    CosmosExecutor,
+    QueryEngineConfig,
+)
 from cosmos_agentic_retriever.query_engine import retriever as retr_mod
 from cosmos_agentic_retriever.query_engine.retriever import CorpusRetriever
 from cosmos_agentic_retriever.query_engine.types import (
+    CrossPartitionQueryDisabled,
+    EqualsFilter,
     PartitionQueryPolicy,
+    QueryCompilationError,
+    RangeFilter,
     RetrievedItem,
     SearchRequest,
+    UnknownField,
 )
 
 
@@ -160,3 +176,188 @@ def test_search_no_embedding_needed_ignores_missing_embedder(monkeypatch) -> Non
     req = SearchRequest(query="q")
     built.retriever.search(req)
     assert built.strategy.execute_calls[0][0] is req
+
+
+def _search_path(schema=None, policy=None, executor=None):
+    container = Mock(spec=ContainerProxy)
+    container.query_items.return_value = iter([])
+    return CorpusRetriever(
+        container=container,
+        schema=schema
+        if schema is not None
+        else CorpusSchema(item_id_path="/id", text_paths=["/text"]),
+        executor=executor
+        if executor is not None
+        else CosmosExecutor(config=QueryEngineConfig()),
+        partition_policy=policy,
+    ), container
+
+
+def test_search_request_to_rows() -> None:
+    schema = CorpusSchema(
+        item_id_path="/id",
+        text_paths=["/content/body", "/headline"],
+        metadata_paths={"year": "/publication/year"},
+    )
+    retriever, container = _search_path(schema)
+    container.query_items.return_value = iter(
+        [
+            {"item_id": "a", "txt_0": "A", "txt_1": "Title A", "md_0": 2024},
+            {"item_id": "b", "txt_0": "B", "txt_1": "Title B", "md_0": 2021},
+        ]
+    )
+    request = SearchRequest(
+        query="battery recycling",
+        limit=2,
+        text_fields=["body"],
+        partition_key=0,
+        filters=[
+            RangeFilter(logical_field="year", minimum=2020),
+            EqualsFilter(logical_field="item_id", value="a"),
+        ],
+        ignored_item_ids=["skip"],
+        max_terms=1,
+    )
+    before = request.model_dump()
+    results = retriever.search(request)
+    container.query_items.assert_called_once_with(
+        query='SELECT TOP @k0 c["id"] AS item_id, c["content"]["body"] AS txt_0, '
+        'c["headline"] AS txt_1, c["publication"]["year"] AS md_0 FROM c '
+        'WHERE (c["publication"]["year"] >= @p1) AND c["id"] = @p2 '
+        'AND NOT ARRAY_CONTAINS(@p3, c["id"]) '
+        'ORDER BY RANK FullTextScore(c["content"]["body"], "battery")',
+        parameters=[
+            {"name": "@k0", "value": 2},
+            {"name": "@p1", "value": 2020},
+            {"name": "@p2", "value": "a"},
+            {"name": "@p3", "value": ["skip"]},
+        ],
+        partition_key=0,
+    )
+    assert [item.item_id for item in results] == ["a", "b"]
+    assert [item.rank for item in results] == [0, 1]
+    assert [item.text for item in results] == ["A", "B"]
+    assert [item.metadata for item in results] == [{"year": 2024}, {"year": 2021}]
+    assert results[0].text_fields == {"body": "A", "headline": "Title A"}
+    assert all(
+        item.retrieval_channels == ["full_text"]
+        and item.retrieval_strategy == "full_text"
+        for item in results
+    )
+    assert request.model_dump() == before
+
+
+@pytest.mark.parametrize(
+    "key, allowed",
+    [(None, True), (None, False), ("tenant", False), (0, False), ("", False)],
+)
+def test_search_partition_policy(key, allowed) -> None:
+    retriever, container = _search_path(
+        policy=PartitionQueryPolicy(allow_cross_partition_search=allowed)
+    )
+    request = SearchRequest(query="battery", partition_key=key)
+    if key is None and not allowed:
+        with pytest.raises(CrossPartitionQueryDisabled):
+            retriever.search(request)
+        container.query_items.assert_not_called()
+    else:
+        assert retriever.search(request) == []
+        arguments = container.query_items.call_args.kwargs
+        routing = {
+            name: value
+            for name, value in arguments.items()
+            if name not in ("query", "parameters")
+        }
+        assert routing == (
+            {"partition_key": key}
+            if key is not None
+            else {"enable_cross_partition_query": True}
+        )
+
+
+@pytest.mark.parametrize(
+    "paths, names, expected",
+    [
+        (["/text"], None, None),
+        (["/text"], [], None),
+        (["/content/body"], ["body"], None),
+        (["/text"], ["missing"], UnknownField),
+        (["/a/text", "/b/text"], None, UnknownField),
+        (["/a/text", "/b/text"], ["/b/text"], None),
+        ([], None, QueryCompilationError),
+    ],
+)
+def test_search_resolves_text_fields(paths, names, expected) -> None:
+    schema = CorpusSchema(item_id_path="/id", text_paths=paths)
+    retriever, container = _search_path(schema)
+    request = SearchRequest(query="battery", text_fields=names)
+    if expected:
+        with pytest.raises(expected):
+            retriever.search(request)
+        container.query_items.assert_not_called()
+    else:
+        assert retriever.search(request) == []
+        selected = schema.resolve_text_fields(names)
+        assert (
+            f'FullTextScore({selected[0].render()}, "battery")'
+            in container.query_items.call_args.kwargs["query"]
+        )
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [{"limit": value} for value in (True, 0, -1, 1.5, "2", None)]
+    + [
+        {"max_terms": 0},
+        {"max_terms": True},
+        {"query": ""},
+        {"mode": "vector"},
+        {"query_vector": [0.1]},
+    ],
+)
+def test_search_rejects_invalid_request(arguments) -> None:
+    retriever, container = _search_path()
+    with pytest.raises(ValidationError):
+        retriever.search(SearchRequest(**{"query": "battery", **arguments}))
+    container.query_items.assert_not_called()
+
+
+def test_search_propagates_query_failure() -> None:
+    retriever, container = _search_path()
+    failure = CosmosHttpResponseError(status_code=503, message="unavailable")
+    container.query_items.side_effect = failure
+    with pytest.raises(CosmosHttpResponseError) as caught:
+        retriever.search(SearchRequest(query="battery"))
+    assert caught.value is failure
+    container.query_items.assert_called_once()
+
+
+def test_search_rejects_no_term_query_before_execution() -> None:
+    retriever, container = _search_path()
+    with pytest.raises(QueryCompilationError):
+        retriever.search(SearchRequest(query="!!!"))
+    container.query_items.assert_not_called()
+
+
+def test_retrievers_share_executor_without_mixing_containers() -> None:
+    executor = CosmosExecutor(config=QueryEngineConfig(max_concurrency=1))
+    first, first_container = _search_path(executor=executor)
+    second, second_container = _search_path(
+        CorpusSchema(item_id_path="/key", text_paths=["/content/body"]),
+        executor=executor,
+    )
+    first_container.query_items.return_value = iter([{"item_id": "a", "txt_0": "A"}])
+    second_container.query_items.return_value = iter([{"item_id": "b", "txt_0": "B"}])
+    first_items = first.search(SearchRequest(query="battery"))
+    second_items = second.search(SearchRequest(query="recycling"))
+    assert first._ctx.executor is second._ctx.executor is executor
+    assert [(item.item_id, item.text) for item in first_items] == [("a", "A")]
+    assert [(item.item_id, item.text) for item in second_items] == [("b", "B")]
+    assert 'c["id"] AS item_id' in first_container.query_items.call_args.kwargs["query"]
+    assert (
+        'c["key"] AS item_id' in second_container.query_items.call_args.kwargs["query"]
+    )
+    assert (
+        'FullTextScore(c["content"]["body"], "recycling")'
+        in second_container.query_items.call_args.kwargs["query"]
+    )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from cosmos_agentic_retriever.query_engine.normalization import (
     assemble_text,
     normalize_rows,
@@ -80,12 +82,12 @@ def test_normalize_rows_full_row() -> None:
         "chunk_id": 3,
         "chunk_order": 5,
         "txt_a": "hello",
-        "md_score": 0.9,
-        "md_source_tag": "x",
+        "md_0": 0.9,
+        "md_1": "x",
         "title": "T",
         "source": "S",
     }
-    aliases = {"txt_a": "body"}
+    aliases = {"txt_a": "body", "md_0": "score", "md_1": "source_tag"}
     items = normalize_rows(
         [row],
         strategy="vector",
@@ -105,16 +107,16 @@ def test_normalize_rows_full_row() -> None:
     assert item.rank == 0
 
 
-def test_normalize_rows_none_ids_passthrough() -> None:
-    row = {"item_id": None, "document_id": None, "chunk_id": None}
+def test_normalize_rows_optional_ids_remain_none() -> None:
+    row = {"item_id": "x", "document_id": None, "chunk_id": None}
     item = normalize_rows([row], strategy="s")[0]
-    assert item.item_id == "None"
+    assert item.item_id == "x"
     assert item.document_id is None
     assert item.chunk_id is None
 
 
 def test_normalize_rows_non_int_chunk_order_becomes_none() -> None:
-    for bad in ("5", 1.5, None):
+    for bad in ("5", 1.5, None, True, False):
         item = normalize_rows([{"item_id": "x", "chunk_order": bad}], strategy="s")[0]
         assert item.chunk_order is None
 
@@ -144,6 +146,14 @@ def test_normalize_rows_queried_text_fields_filter_display() -> None:
 
 
 def test_normalize_rows_metadata_only_md_prefixed() -> None:
-    row = {"item_id": "x", "md_a": 1, "b": 2, "txt_c": "c"}
-    item = normalize_rows([row], strategy="s", projected_aliases={"txt_c": "c"})[0]
+    row = {"item_id": "x", "md_0": 1, "md_unmapped": 3, "b": 2, "txt_c": "c"}
+    item = normalize_rows(
+        [row], strategy="s", projected_aliases={"txt_c": "c", "md_0": "a", "b": "b"}
+    )[0]
     assert item.metadata == {"a": 1}
+
+
+@pytest.mark.parametrize("row", [{}, {"item_id": None}])
+def test_normalize_rows_missing_item_id_raises(row) -> None:
+    with pytest.raises(ValueError, match="item_id"):
+        normalize_rows([row], strategy="full_text")
