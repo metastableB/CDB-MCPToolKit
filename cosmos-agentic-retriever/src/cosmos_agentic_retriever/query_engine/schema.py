@@ -41,6 +41,7 @@ from typing import Annotated
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 from cosmos_agentic_retriever.query_engine.paths import CosmosPath, coerce_path
+from cosmos_agentic_retriever.query_engine.types import UnknownField
 
 PathField = Annotated[CosmosPath, BeforeValidator(coerce_path)]
 
@@ -104,3 +105,23 @@ class CorpusSchema(BaseModel):
                 suffix += 1
             out[name] = path
         return out
+
+    def resolve_text_fields(self, names: list[str] | None) -> list[CosmosPath]:
+        mapping = self.text_field_map()
+        if not names:
+            if len(mapping) == 1:
+                return [next(iter(mapping.values()))]
+            if not mapping:
+                return []
+            raise UnknownField(
+                "multiple text fields are available; specify one or more of "
+                f"{sorted(mapping)}"
+            )
+        paths: list[CosmosPath] = []
+        for name in names:
+            if name not in mapping:
+                raise UnknownField(
+                    f"unknown text field {name!r}; available: {sorted(mapping)}"
+                )
+            paths.append(mapping[name])
+        return paths

@@ -37,6 +37,14 @@ class QueryCompilationError(RetrievalError):
     pass
 
 
+class UnknownField(RetrievalError):
+    pass
+
+
+class CrossPartitionQueryDisabled(RetrievalError):
+    pass
+
+
 # Field conditions passed to the compiler's filters argument.
 class EqualsFilter(BaseModel):
     kind: Literal["equals"] = "equals"
@@ -70,3 +78,31 @@ class CompiledCosmosQuery(BaseModel):
     enable_cross_partition_query: bool = False
     strategy: str = ""
     projected_aliases: dict[str, str] = Field(default_factory=dict)
+
+
+class SearchRequest(BaseModel):
+    query: str
+    limit: int = 50
+    ignored_item_ids: list[str] = Field(default_factory=list)
+    filters: list[FilterExpression] = Field(default_factory=list)
+    partition_key: Any | None = None
+    text_fields: list[str] | None = None
+
+
+class RetrievedItem(BaseModel):
+    item_id: str
+    document_id: str | None = None
+    chunk_id: str | None = None
+    chunk_order: int | None = None
+    text: str = ""
+    text_fields: dict[str, str] = Field(default_factory=dict)
+    title: str | None = None
+    source: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    retrieval_strategy: str = ""
+    retrieval_channels: list[str] = Field(default_factory=list)
+    rank: int = 0
+
+
+class PartitionQueryPolicy(BaseModel):
+    allow_cross_partition_search: bool = True
