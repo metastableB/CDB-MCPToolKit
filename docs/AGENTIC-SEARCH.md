@@ -1,59 +1,81 @@
-# `agentic_search` — multi-turn agentic retrieval tool
+# `agentic_search` HTTP integration
 
-`agentic_search` uses an LLM search agent to answer natural language queries
-against an Azure Cosmos DB corpus. Given a query, the agent issues hybrid
-(vector + full-text) RRF searches, optionally reranks and fetches full
-documents. Even though we use an LLM for `agentic_search`, from the MCP client's
-perspective it's a single tool call. Internally, the agent can use multiple
-rounds of retrieval to fetch these documents while respecting a configurable
-token budget. Sophisticated multi-turn queries can take upwards of 30s for
-completion.
+Use `agentic_search` to send a search request from an MCP client to an external
+retrieval service. The .NET toolkit validates the tool arguments, sends an HTTP
+`POST /search` request, and returns the service's response body.
 
+**A separately running, compatible retrieval service is required.** Its
+implementation is not included in this version of the toolkit. Registering the
+MCP tool does not provide a working end-to-end retrieval service on its own.
+The .NET caller does not execute Cosmos queries, run an LLM loop, or rerank results.
 
 ## Architecture
 
 ```text
-  MCP client  (Claude Desktop · AI Foundry · VS Code Copilot)
-       │
-       │  MCP HTTP  (one tool call)
-       ▼
-  MCPToolKit (.NET)
-       [McpServerTool] AgenticSearch  →  AgenticSearchExecutor
-       │
-       │  HTTP POST /search    ◄── JSON body returned ──
-       ▼
-  cosmos-retriever  (Python · FastAPI · uvicorn, kept warm)
-       └─ multi-turn retrieval loop (token-budgeted)
-            ├─ tools: search / grep / read / prune
-            ├─ retriever model
-            ├─ embedding model
-            └─ corpus on Cosmos DB (vector + full-text)
+  MCP client
+       |
+       | MCP tool call: agentic_search
+       v
+  MCPToolKit (.NET): AgenticSearch -> AgenticSearchExecutor
+       |
+       | HTTP POST /search       <-- Response body
+       v
+  External retrieval service (not included)
 ```
-
-The retriever runs as a separate Python process; the .NET tool calls its
-`POST /search` endpoint per request and passes the JSON response back verbatim.
-
-Returns a JSON list of ranked documents (each with `text` and a short
-`justification`).
-
-By default the tool searches the retriever's default corpus; pass the optional
-`database` and `container` arguments to target a different Cosmos corpus per
-call.
 
 ## Configuration
 
-The tool reads two optional environment variables. If `COSMOS_RETRIEVER_URL`
-doesn't point at a running retriever, it returns a clean JSON
-`{"error":"...","hint":"..."}` envelope instead of crashing.
+Set these optional variables on the .NET toolkit process. The values shown are
+the defaults. They are read on each call. Commented entries in `.env.example`
+indicate optional overrides, not a disabled API.
 
 ```bash
-# Base URL of the cosmos-retriever service (default shown)
+# Base URL of the external retrieval service
 COSMOS_RETRIEVER_URL=http://127.0.0.1:9000
 
-# Per-request wall-clock cap in seconds; the request is abandoned past this
+# HTTP request timeout in seconds
 COSMOS_RETRIEVER_TIMEOUT_S=600
 ```
 
-The retriever service has its **own** separate configuration (Cosmos account,
-models, corpora). See the retriever service configuration docs for that setup.
+The default URL must be reachable from the toolkit process. It does not start a
+service. Missing or invalid timeout values fall back to 600 seconds.
+
+## Tool arguments
+
+| Argument | Requirement | Forwarding behavior |
+| --- | --- | --- |
+| `query` | Required, nonempty string | Sent as `query`. |
+| `maxDocuments` | Optional integer, 1-50; default 20 | Sent as the requested result limit. |
+| `database` | Optional string | Sent when nonblank. |
+| `container` | Optional string | Sent when nonblank. |
+| `schemaOverride` | Optional JSON object | Sent as `overrides.schema_override`. Omit for no override. |
+
+The service must interpret the targeting, result limit, and schema override.
+The caller neither discovers a schema nor chooses a default corpus when a target
+is omitted. Those behaviors depend on the external service.
+
+For example, these tool arguments:
+
+```json
+{"query": "battery recycling", "maxDocuments": 5, "database": "research", "container": "articles", "schemaOverride": {"item_id_path": "/id"}}
+```
+
+produce this JSON body for `POST /search`:
+
+```json
+{"query": "battery recycling", "maxDocuments": 5, "database": "research", "container": "articles", "overrides": {"schema_override": {"item_id_path": "/id"}}}
+```
+
+## Responses and errors
+
+On a successful HTTP response, the caller returns the nonempty response body
+without interpreting document fields or enforcing a result schema. The external
+service defines that schema; the toolkit does not guarantee a list of documents
+or fields such as `text` and `justification`.
+
+Connection failures, request timeouts, and empty successful responses produce
+JSON error objects containing `error` and, where applicable, `hint`. For a
+non-success HTTP status, a body beginning with `{` or `[` is passed through;
+other bodies are wrapped in a JSON error object. Without a compatible service,
+the tool cannot return search results.
 
