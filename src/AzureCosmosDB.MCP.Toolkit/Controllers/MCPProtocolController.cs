@@ -279,21 +279,23 @@ public class MCPProtocolController : ControllerBase
                                 },
                                 new {
                                     name = "agentic_search",
-                                    description = "Search using a multi-turn retrieval agent for Cosmos DB: rewrites the query, runs several vector/full-text " +
-                                        "searches, reranks, and returns curated, ranked documents. Prefer it over vector_search/text_search for " +
+                                    description = "Search using a multi-turn retrieval agent for Cosmos DB: rewrites the query and uses multiple rounds " +
+                                        "of searching and document reading to find relevant documents. Prefer it over vector_search/text_search for " +
                                         "complex, ambiguous, or multi-hop questions where one-shot search might miss context. Pass a natural-language " +
-                                        "`query`; optionally set `database`/`container` to target a corpus and `maxDocuments` to cap results.",
+                                        "`query`; optionally set `database`/`container` to target a corpus and `maxDocuments` to cap results. " +
+                                        "The agent runs in a separate service where retrieval behavior, Cosmos access, and models are configured.",
                                     inputSchema = new {
                                         type = "object",
                                         properties = new {
                                             query = new { type = "string", description = "Natural-language information need to retrieve documents for", maxLength = 4096 },
                                             maxDocuments = new { type = "integer", description = "Maximum number of curated documents to return (1-50, default 20)", minimum = 1, maximum = 50, @default = 20 },
-                                            database = new { type = "string", description = "Optional Cosmos database override (else COSMOS_DATABASE env var)", maxLength = 256 },
-                                            container = new { type = "string", description = "Optional Cosmos container to narrow to. " +
-                                                "Omit to search the whole database (all searchable collections).", maxLength = 256 },
+                                            database = new { type = "string", description = "Optional Cosmos database name override. " +
+                                                "If omitted, the retrieval service determines the database.", maxLength = 256 },
+                                            container = new { type = "string", description = "Optional Cosmos container to narrow the search to. " +
+                                                "If omitted, the retrieval service determines the search scope.", maxLength = 256 },
                                             schemaOverride = new { type = "object", description = "Optional schema override as a JSON object " +
-                                                "(keys: document_id_path, chunk_id_path, chunk_order_path, title_path, source_path, item_id_path, " +
-                                                "use_dunder_codec). Omit for pure schema discovery." }
+                                                "(keys, where supported by the service: document_id_path, chunk_id_path, chunk_order_path, " +
+                                                "title_path, source_path, item_id_path, use_dunder_codec). Omit for no override." }
                                         },
                                         required = new string[] { "query" },
                                         additionalProperties = false

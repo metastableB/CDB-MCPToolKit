@@ -8,16 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - 2026-09-16
 
 ### Added
-- **`agentic_search` tool**: given a natural-language query, runs a multi-turn
-  retrieval agent against a Cosmos DB corpus and returns ranked, curated
-  documents. The agent issues hybrid (vector + full-text) RRF searches,
-  optionally reranks with Qwen3-Reranker-8B, reads full documents, and prunes
-  its context across turns. The agent runs as a separate `cosmos-retriever`
-  FastAPI service; this tool calls it over HTTP. See
+- **`agentic_search` tool**: given a natural-language query, uses a multi-turn
+  retrieval agent to find relevant documents in a Cosmos DB corpus. The agent
+  refines queries through multiple rounds of searching and document reading.
+  This requires a separate retrieval service, where agent behavior, Cosmos
+  access, and models are configured. This change adds the .NET MCP tool and
+  HTTP caller, which sends requests to that service and returns its responses. See
   [`docs/AGENTIC-SEARCH.md`](docs/AGENTIC-SEARCH.md).
 - Optional `database`, `container`, and `schemaOverride` arguments on
-  `agentic_search`, so one MCP server can target different Cosmos corpora per
-  request (via the `CORPUS_REGISTRY` host config).
+  `agentic_search`, forwarded to the retrieval service to specify the target
+  corpus and document field mappings.
 - New service `AgenticSearchExecutor`: the HTTP client to the retriever service
   (timeout and error-envelope handling).
 - New env vars `COSMOS_RETRIEVER_URL` and `COSMOS_RETRIEVER_TIMEOUT_S` — see

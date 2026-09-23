@@ -1100,13 +1100,23 @@ public static class CosmosDbTools
         }
     }
 
-    [McpServerTool, Description("Multi-turn retrieval agent for Cosmos DB: rewrites the query, runs several vector/full-text searches, reranks, and returns curated, ranked documents. Prefer it over vector_search/text_search for complex, ambiguous, or multi-hop questions where one-shot search might miss context. Pass a natural-language `query`; optionally set `database`/`container` to target a corpus and `maxDocuments` to cap results.")]
+    [McpServerTool, Description(
+        "Multi-turn retrieval agent for Cosmos DB: rewrites the query and uses multiple rounds of searching " +
+        "and document reading to find relevant documents. Prefer it over vector_search/text_search for complex, " +
+        "ambiguous, or multi-hop questions where one-shot search might miss context. Pass a natural-language " +
+        "`query`; optionally set `database`/`container` to target a corpus and `maxDocuments` to cap results. " +
+        "The agent runs in a separate service where retrieval behavior, Cosmos access, and models are configured.")]
     public static async Task<string> AgenticSearch(
         [Description("Natural-language information need to retrieve documents for.")] string query,
         [Description("Maximum number of curated documents to return (1-50, default 20).")] int maxDocuments = 20,
-        [Description("Optional Cosmos database name override (else COSMOS_DATABASE env var).")] string? database = null,
-        [Description("Optional Cosmos container to narrow the search to. Omit to search the WHOLE database (all searchable collections) — recommended default.")] string? container = null,
-        [Description("Optional schema override as a JSON object (keys: document_id_path, chunk_id_path, chunk_order_path, title_path, source_path, item_id_path, use_dunder_codec), or 'none' for pure discovery. Example: {\"document_id_path\":\"/docid\",\"chunk_order_path\":\"/chunk_idx\",\"use_dunder_codec\":true}")] string? schemaOverride = null)
+        [Description("Optional Cosmos database name override. If omitted, the retrieval service determines the database.")] string? database = null,
+        [Description("Optional Cosmos container to narrow the search to. If omitted, the retrieval service determines the search scope.")] string? container = null,
+        [Description("Optional schema override as a JSON object encoded in a string " +
+            "(keys, where supported by the service: document_id_path, chunk_id_path, " +
+            "chunk_order_path, title_path, source_path, item_id_path, use_dunder_codec), " +
+            "or 'none' to omit the override. Example: {\"document_id_path\":\"/docid\"," +
+            "\"chunk_order_path\":\"/chunk_idx\",\"use_dunder_codec\":true}")]
+        string? schemaOverride = null)
     {
         var logger = (AppState.LoggerFactory ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance)
             .CreateLogger("AzureCosmosDB.MCP.Toolkit.CosmosDbTools.AgenticSearch");

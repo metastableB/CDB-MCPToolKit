@@ -1,11 +1,15 @@
 # `agentic_search` HTTP integration
 
-Use `agentic_search` to send a search request from an MCP client to an external
-retrieval service. The .NET toolkit validates the tool arguments, sends an HTTP
+Use `agentic_search` to find relevant documents in a Cosmos DB corpus. A retrieval
+agent uses an LLM to refine the query through multiple rounds of searching and
+document reading.
+
+The .NET toolkit validates the tool arguments, sends an HTTP
 `POST /search` request, and returns the service's response body.
 Connection failures and request timeouts produce JSON errors.
 
-*A separately running, compatible retrieval service is required.* (TODO: Update this as the retrieval service lands).
+*A separately running, compatible retrieval service is required.* Configure the
+agent's retrieval behavior, Cosmos access, and models on that service.
 
 ## Architecture
 
@@ -18,7 +22,7 @@ Connection failures and request timeouts produce JSON errors.
        |
        | HTTP POST /search       <-- Response body
        v
-  External retrieval service (not included)
+     External retrieval service
 ```
 
 ## Configuration
