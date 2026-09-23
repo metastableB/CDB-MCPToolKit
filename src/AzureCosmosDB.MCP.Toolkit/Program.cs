@@ -1116,7 +1116,8 @@ public static class CosmosDbTools
             "chunk_order_path, title_path, source_path, item_id_path, use_dunder_codec), " +
             "or 'none' to omit the override. Example: {\"document_id_path\":\"/docid\"," +
             "\"chunk_order_path\":\"/chunk_idx\",\"use_dunder_codec\":true}")]
-        string? schemaOverride = null)
+        string? schemaOverride = null,
+        CancellationToken cancellationToken = default)
     {
         var logger = (AppState.LoggerFactory ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance)
             .CreateLogger("AzureCosmosDB.MCP.Toolkit.CosmosDbTools.AgenticSearch");
@@ -1146,6 +1147,6 @@ public static class CosmosDbTools
         }
 
         return await AgenticSearchExecutor.RunAsync(
-            query, maxDocuments, logger, database, container, schemaOverride);
+            query, maxDocuments, logger, database, container, schemaOverride, cancellationToken);
     }
 }

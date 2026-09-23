@@ -96,6 +96,11 @@ public static class AgenticSearchExecutor
     {
         var baseUrl = ResolveString(BaseUrlEnvVar, DefaultBaseUrl).TrimEnd('/');
         var timeoutSeconds = ResolveInt(TimeoutEnvVar, DefaultTimeoutSeconds);
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var serviceUri) ||
+            (serviceUri.Scheme != Uri.UriSchemeHttp && serviceUri.Scheme != Uri.UriSchemeHttps))
+        {
+            return ErrorEnvelope($"{BaseUrlEnvVar} must be an absolute HTTP or HTTPS URL.");
+        }
         var requestUri = $"{baseUrl}/search";
 
         var payload = new Dictionary<string, object?>
