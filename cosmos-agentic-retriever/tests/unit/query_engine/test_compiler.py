@@ -5,7 +5,6 @@ from typing import Any
 import pytest
 
 from cosmos_agentic_retriever.query_engine.compiler import CosmosQueryCompiler
-from cosmos_agentic_retriever.query_engine.full_text_terms import DEFAULT_MAX_FTS_TERMS
 from cosmos_agentic_retriever.query_engine.paths import CosmosPath
 from cosmos_agentic_retriever.query_engine.schema import CorpusSchema
 from cosmos_agentic_retriever.query_engine.types import (
@@ -67,8 +66,8 @@ def test_projection_emits_logical_columns_and_alias_map() -> None:
         'c["year"] AS md_0',
     ):
         assert col in select
-    # text/metadata aliases resolve back to their logical names
-    assert aliases["txt_0"] == "text"
+    # Text aliases identify full paths; metadata aliases identify configured names.
+    assert aliases["txt_0"] == "/text"
     assert aliases["md_0"] == "year"
 
 
@@ -76,7 +75,7 @@ def test_projection_docstring_example() -> None:
     schema = CorpusSchema(item_id_path="/id", text_paths=["/content/text"])
     assert CosmosQueryCompiler(schema).projection("@k0") == (
         'SELECT TOP @k0 c["id"] AS item_id, c["content"]["text"] AS txt_0 FROM c',
-        {"item_id": "item_id", "txt_0": "text"},
+        {"item_id": "item_id", "txt_0": "/content/text"},
     )
 
 
@@ -101,11 +100,14 @@ def test_compiler_preserves_literal_slashes_in_schema_paths() -> None:
         partition_key=None,
         cross_partition=True,
         text_paths=schema.text_paths,
+        max_terms=10,
     )
     assert 'c["document/title"] AS txt_0' in compiled.sql
     assert 'c["document"]["title"] AS txt_1' in compiled.sql
     assert 'FullTextScore(c["document/title"],' in compiled.sql
     assert 'FullTextScore(c["document"]["title"],' in compiled.sql
+    assert compiled.projected_aliases["txt_0"] == '/"document/title"'
+    assert compiled.projected_aliases["txt_1"] == "/document/title"
 
 
 # --- structured filters ---------------------------------------------------
@@ -197,6 +199,7 @@ def test_full_text_multiple_paths_uses_rank_rrf() -> None:
         partition_key=None,
         cross_partition=True,
         text_paths=[_TEXT, _BODY],
+        max_terms=10,
     )
     assert "ORDER BY RANK RRF(" in q.sql
     assert 'FullTextScore(c["text"], "quick", "brown")' in q.sql
@@ -230,16 +233,15 @@ def test_compiler_forwards_per_call_term_limit(method: str, max_terms: int) -> N
         assert f'"term{max_terms}"' not in result.sql
         assert _param(result, "@k0")["value"] == 5
 
-    default_result = compile_query(**arguments)
-    assert DEFAULT_MAX_FTS_TERMS == 30
-    assert '"term29"' in default_result.sql
-    assert '"term30"' not in default_result.sql
+    with pytest.raises(TypeError, match="max_terms"):
+        compile_query(**arguments)
 
 
 @pytest.mark.parametrize("method", ["full_text", "hybrid"])
 def test_full_text_queries_require_searchable_terms(method: str) -> None:
     common = {
         "query": "!!!",
+        "max_terms": 10,
         "limit": 5,
         "ignored_item_ids": [],
         "filters": [],
@@ -258,6 +260,7 @@ def test_full_text_queries_require_searchable_terms(method: str) -> None:
 def test_full_text_queries_require_a_text_path(method: str) -> None:
     common = {
         "query": "query",
+        "max_terms": 10,
         "limit": 5,
         "ignored_item_ids": [],
         "filters": [],
@@ -285,7 +288,9 @@ def test_vector_queries_require_a_nonempty_vector(method: str) -> None:
     }
     with pytest.raises(QueryCompilationError, match="vector must not be empty"):
         if method == "hybrid":
-            _compiler().compile_hybrid(query="query", text_paths=[_TEXT], **common)
+            _compiler().compile_hybrid(
+                query="query", text_paths=[_TEXT], max_terms=10, **common
+            )
         else:
             _compiler().compile_vector(**common)
 
@@ -320,7 +325,9 @@ def _compile_contract_query(
     if method in ("compile_vector", "compile_hybrid"):
         arguments.update(query_vector=[0.1, 0.2], vector_path=_VEC)
     if method in ("compile_full_text", "compile_hybrid"):
-        arguments.update(query="the battery recycling", text_paths=[_TEXT])
+        arguments.update(
+            query="the battery recycling", text_paths=[_TEXT], max_terms=10
+        )
     return getattr(CosmosQueryCompiler(schema), method)(**arguments)
 
 
@@ -430,7 +437,7 @@ def test_complete_compiled_query_contract(
     assert result.projected_aliases == {
         "item_id": "item_id",
         "document_id": "document_id",
-        "txt_0": "text",
+        "txt_0": "/text",
         "md_0": "year",
         "md_1": "category",
     }

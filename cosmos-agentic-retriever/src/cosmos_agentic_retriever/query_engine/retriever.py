@@ -12,9 +12,6 @@ the required full-text policy/index. The caller manages the Cosmos client's life
     executor = CosmosExecutor(config=QueryEngineConfig())
     retriever = CorpusRetriever(container=container, schema=schema, executor=executor)
     items = retriever.search(SearchRequest(query="battery recycling", limit=5))
-
-Import CosmosExecutor and QueryEngineConfig from cosmos_agentic_retriever.query_engine,
-CorpusRetriever from this module, and SearchRequest from query_engine.types.
 """
 
 from __future__ import annotations

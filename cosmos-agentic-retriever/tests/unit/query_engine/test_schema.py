@@ -86,18 +86,19 @@ def test_text_names_never_overwrite_a_distinct_path() -> None:
     ]
     for order in permutations(paths):
         schema = CorpusSchema(item_id_path="/id", text_paths=list(order))
-        assert set(schema.text_field_map().values()) == set(paths)
+        assert schema.text_field_map() == {str(path): path for path in paths}
+        assert schema.resolve_text_fields([str(paths[0])]) == [paths[0]]
         compiled = _compile(schema)
         for path in paths:
             assert f"{path.render()} AS txt_" in compiled.sql
 
 
-def test_ordinary_names_and_identical_paths_keep_existing_behavior() -> None:
+def test_explicit_text_paths_are_deduplicated() -> None:
     schema = CorpusSchema(
         item_id_path="/id", text_paths=["/a/text", "/b/text", "/b/text"]
     )
     assert schema.text_field_map() == {
-        "text": CosmosPath.parse("/a/text"),
+        "/a/text": CosmosPath.parse("/a/text"),
         "/b/text": CosmosPath.parse("/b/text"),
     }
 
@@ -137,7 +138,7 @@ def test_compiler_revalidates_in_place_edits() -> None:
     assert "txt_0" not in compiler.projection("@k0")[0]
     schema.text_paths.append("/content/text")
     schema.metadata_paths["year"] = "/publication/year"
-    assert schema.text_field_map() == {"text": CosmosPath.parse("/content/text")}
+    assert schema.text_field_map() == {"/content/text": CosmosPath.parse("/content/text")}
     compiled = compiler.compile_structured(
         limit=5,
         filters=[EqualsFilter(logical_field="year", value=2020)],
@@ -183,6 +184,8 @@ def test_every_query_checks_schema_before_emitting_sql(method: str) -> None:
     if method in ("compile_vector", "compile_hybrid"):
         arguments.update(query_vector=[0.1], vector_path=CosmosPath.parse("/embedding"))
     if method in ("compile_full_text", "compile_hybrid"):
-        arguments.update(query="battery", text_paths=[CosmosPath.parse("/text")])
+        arguments.update(
+            query="battery", text_paths=[CosmosPath.parse("/text")], max_terms=10
+        )
     with pytest.raises(ValidationError, match="reserved"):
         getattr(compiler, method)(**arguments)

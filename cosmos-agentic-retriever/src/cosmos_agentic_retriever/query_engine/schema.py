@@ -88,25 +88,31 @@ class CorpusSchema(BaseModel):
             )
         return paths
 
-    @staticmethod
-    def _seg_name(path: CosmosPath) -> str:
-        return path.segments[-1]
-
     def text_field_map(self) -> dict[str, CosmosPath]:
-        """Name each distinct text path without overwriting an earlier entry."""
-        out: dict[str, CosmosPath] = {}
-        for path in dict.fromkeys(coerce_path(path) for path in self.text_paths):
-            name = self._seg_name(path)
-            if name in out:
-                name = str(path)
-            suffix = 2
-            while name in out:
-                name = f"{path!s}#{suffix}"
-                suffix += 1
-            out[name] = path
-        return out
+        """Return a lookup for the text paths configured in this schema.
+
+        Our configuration and search requests use strings like "/article/text"
+        to refer to fields.  Cosmos SQL needs c["article"]["text"] instead. The
+        schema parses each configured path into a CosmosPath object, whose
+        render() method produces that SQL expression.
+
+        render() uses json.dumps() to quote each field name and escape any
+        double quotes, backslashes, or control characters inside it. This keeps
+        those characters part of the field name instead of SQL syntax.
+
+        For text_paths=["/article/text"], return:
+            {"/article/text": CosmosPath(segments=("article", "text"))}
+
+        This lookup lets resolve_text_fields check that a requested path is
+        configured and return its parsed object. The compiler also uses the
+        string keys to label returned text. This method does not generate SQL
+        or read documents. Repeated paths appear only once in the dictionary.
+        """
+        paths = (coerce_path(path) for path in self.text_paths)
+        return {str(path): path for path in paths}
 
     def resolve_text_fields(self, names: list[str] | None) -> list[CosmosPath]:
+        """Select configured full paths, or the sole text field if none are given."""
         mapping = self.text_field_map()
         if not names:
             if len(mapping) == 1:
@@ -114,14 +120,14 @@ class CorpusSchema(BaseModel):
             if not mapping:
                 return []
             raise UnknownField(
-                "multiple text fields are available; specify one or more of "
+                "multiple text fields are available; specify one or more full paths: "
                 f"{sorted(mapping)}"
             )
         paths: list[CosmosPath] = []
         for name in names:
             if name not in mapping:
                 raise UnknownField(
-                    f"unknown text field {name!r}; available: {sorted(mapping)}"
+                    f"unknown text field path {name!r}; available: {sorted(mapping)}"
                 )
             paths.append(mapping[name])
         return paths

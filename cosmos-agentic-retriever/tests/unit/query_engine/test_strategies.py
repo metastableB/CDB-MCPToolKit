@@ -66,7 +66,7 @@ class FakeNormalize:
 @pytest.fixture
 def norm(monkeypatch) -> FakeNormalize:
     fake = FakeNormalize()
-    monkeypatch.setattr(strat_mod, "normalize_rows", fake)
+    monkeypatch.setattr(strat_mod, "rows_to_items", fake)
     return fake
 
 
@@ -112,15 +112,15 @@ def test_strategy_names_and_embedding_flags() -> None:
 def test_full_text_execute_wiring(norm) -> None:
     schema, compiler = FakeSchema(), FakeCompiler()
     ctx = _ctx(schema, compiler)
-    FullTextSearchStrategy().execute(_req(query="hello", text_fields=["body"]), ctx)
-    assert schema.text_calls == [["body"]]
+    FullTextSearchStrategy().execute(_req(query="hello", text_fields=["/body"]), ctx)
+    assert schema.text_calls == [["/body"]]
     method, kwargs = compiler.calls[0]
     assert method == "full_text"
     assert kwargs["query"] == "hello" and kwargs["text_paths"] == ["T1", "T2"]
     normalized = norm.calls[0][1]
     assert normalized["strategy"] == "full_text"
     assert normalized["channels"] == ["full_text"]
-    assert normalized["queried_text_fields"] == ["body"]
+    assert normalized["queried_text_fields"] == ["/body"]
     assert ctx.executor.ran[0][1] is ctx.container
 
 

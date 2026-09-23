@@ -142,8 +142,8 @@ def test_search_skips_vector_resolution_when_absent(monkeypatch) -> None:
 
 def test_search_resolves_text_fields_when_present(monkeypatch) -> None:
     built = _build(monkeypatch)
-    built.retriever.search(SearchRequest(query="q", text_fields=["a", "b"]))
-    assert built.schema.text_calls == [["a", "b"]]
+    built.retriever.search(SearchRequest(query="q", text_fields=["/a", "/b"]))
+    assert built.schema.text_calls == [["/a", "/b"]]
 
 
 def test_search_skips_text_resolution_when_none_or_empty(monkeypatch) -> None:
@@ -209,7 +209,7 @@ def test_search_request_to_rows() -> None:
     request = SearchRequest(
         query="battery recycling",
         limit=2,
-        text_fields=["body"],
+        text_fields=["/content/body"],
         partition_key=0,
         filters=[
             RangeFilter(logical_field="year", minimum=2020),
@@ -238,13 +238,29 @@ def test_search_request_to_rows() -> None:
     assert [item.rank for item in results] == [0, 1]
     assert [item.text for item in results] == ["A", "B"]
     assert [item.metadata for item in results] == [{"year": 2024}, {"year": 2021}]
-    assert results[0].text_fields == {"body": "A", "headline": "Title A"}
+    assert results[0].text_fields == {"/content/body": "A", "/headline": "Title A"}
     assert all(
         item.retrieval_channels == ["full_text"]
         and item.retrieval_strategy == "full_text"
         for item in results
     )
     assert request.model_dump() == before
+
+
+@pytest.mark.parametrize("options, expected_terms", [({}, 30), ({"max_terms": 35}, 35)])
+def test_search_term_limit_default_and_override(options, expected_terms) -> None:
+    retriever, container = _search_path()
+    terms = [f"term{index}" for index in range(40)]
+    request = SearchRequest(query=" ".join(terms), **options)
+    assert request.max_terms == expected_terms
+    assert retriever.search(request) == []
+    literal_terms = ", ".join(f'"{term}"' for term in terms[:expected_terms])
+    container.query_items.assert_called_once_with(
+        query='SELECT TOP @k0 c["id"] AS item_id, c["text"] AS txt_0 FROM c '
+        f'ORDER BY RANK FullTextScore(c["text"], {literal_terms})',
+        parameters=[{"name": "@k0", "value": 50}],
+        enable_cross_partition_query=True,
+    )
 
 
 @pytest.mark.parametrize(
@@ -280,10 +296,14 @@ def test_search_partition_policy(key, allowed) -> None:
     [
         (["/text"], None, None),
         (["/text"], [], None),
-        (["/content/body"], ["body"], None),
-        (["/text"], ["missing"], UnknownField),
+        (["/content/body"], ["/content/body"], None),
+        (["/content/body"], ["body"], UnknownField),
+        (["/text"], ["text"], UnknownField),
+        (["/text"], ["/missing"], UnknownField),
         (["/a/text", "/b/text"], None, UnknownField),
         (["/a/text", "/b/text"], ["/b/text"], None),
+        (["/a/text", "/b/text"], ["text"], UnknownField),
+        (["/a/text", "/b/text"], ["/b/text#2"], UnknownField),
         ([], None, QueryCompilationError),
     ],
 )
@@ -302,6 +322,34 @@ def test_search_resolves_text_fields(paths, names, expected) -> None:
             f'FullTextScore({selected[0].render()}, "battery")'
             in container.query_items.call_args.kwargs["query"]
         )
+
+
+@pytest.mark.parametrize(
+    "paths",
+    [["/article/text", "/summary/text"], ['/"article/text"', "/article/text"]],
+)
+@pytest.mark.parametrize("reverse", [False, True])
+def test_search_uses_full_paths_in_selection_and_results(paths, reverse) -> None:
+    configured = list(reversed(paths)) if reverse else paths
+    schema = CorpusSchema(item_id_path="/id", text_paths=configured)
+    retriever, container = _search_path(schema)
+    row = {"item_id": "item-1"}
+    for index, path in enumerate(configured):
+        row[f"txt_{index}"] = f"content of {path}"
+    container.query_items.return_value = iter([row])
+    selected = list(reversed(paths))
+    result = retriever.search(SearchRequest(query="battery", text_fields=selected))[0]
+    assert result.text_fields == {path: f"content of {path}" for path in paths}
+    assert result.text == "\n\n".join(
+        f"[{path}]\ncontent of {path}" for path in selected
+    )
+    scores = ", ".join(
+        f'FullTextScore({path.render()}, "battery")'
+        for path in schema.resolve_text_fields(selected)
+    )
+    assert container.query_items.call_args.kwargs["query"].endswith(
+        f"ORDER BY RANK RRF({scores})"
+    )
 
 
 @pytest.mark.parametrize(

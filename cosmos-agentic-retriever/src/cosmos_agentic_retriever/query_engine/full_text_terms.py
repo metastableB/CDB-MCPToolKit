@@ -1,7 +1,7 @@
 """Prepare search text for Cosmos DB's FullTextScore function.
 
 tokenize_for_fts splits text into lowercase, unique terms and keeps at most
-max_terms (30 by default). It removes common English words unless that would
+the caller-supplied max_terms. It removes common English words unless that would
 leave no terms. fts_literal_args quotes and escapes the terms for inclusion in SQL.
 """
 
@@ -30,12 +30,7 @@ _STOPWORDS = frozenset(
     )
 )
 
-DEFAULT_MAX_FTS_TERMS = 30
-
-
-def tokenize_for_fts(
-    query: str, *, max_terms: int = DEFAULT_MAX_FTS_TERMS
-) -> list[str]:
+def tokenize_for_fts(query: str, *, max_terms: int) -> list[str]:
     """Prepare search terms, capped by a positive integer max_terms."""
     if isinstance(max_terms, bool) or not isinstance(max_terms, int) or max_terms < 1:
         raise ValueError("max_terms must be a positive integer")

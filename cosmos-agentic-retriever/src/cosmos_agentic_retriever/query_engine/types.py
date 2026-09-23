@@ -1,11 +1,11 @@
+"""Define the inputs, outputs, settings, and errors used by the query engine. """
+
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
 # TODO: Is pydantic justified here? Isn't dataclass cleaner?
 from pydantic import BaseModel, ConfigDict, Field
-
-from cosmos_agentic_retriever.query_engine.full_text_terms import DEFAULT_MAX_FTS_TERMS
 
 
 class QueryEngineConfig(BaseModel):
@@ -83,11 +83,18 @@ class CompiledCosmosQuery(BaseModel):
 
 
 class SearchRequest(BaseModel):
+    """Search configured full text paths, such as text_fields=["/article/text"].
+
+    Omit text_fields only when the schema has a single text field.
+    """
+
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     query: str = Field(min_length=1)
+    # Return at most this many Cosmos items per search: limit=5 returns up to 5.
+    # An item may be one chunk of a document, not a complete document.
     limit: int = Field(default=50, strict=True, gt=0)
-    max_terms: int = Field(default=DEFAULT_MAX_FTS_TERMS, strict=True, gt=0)
+    max_terms: int = Field(default=30, strict=True, gt=0)
     ignored_item_ids: list[str] = Field(default_factory=list)
     filters: list[FilterExpression] = Field(default_factory=list)
     partition_key: Any | None = None
@@ -95,6 +102,8 @@ class SearchRequest(BaseModel):
 
 
 class RetrievedItem(BaseModel):
+    """A ranked item with text_fields keyed by full paths, such as /article/text."""
+
     item_id: str
     document_id: str | None = None
     chunk_id: str | None = None
