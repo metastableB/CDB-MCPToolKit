@@ -5,6 +5,9 @@ using System.Text.Json;
 using AzureCosmosDB.MCP.Toolkit.Services;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
+using Moq;
 using Xunit;
 
 namespace AzureCosmosDB.MCP.Toolkit.Tests;
@@ -15,6 +18,7 @@ namespace AzureCosmosDB.MCP.Toolkit.Tests;
 /// executor's response pass-through, timeout behaviour, and error-envelope
 /// generation without needing the real retriever service running.
 /// </summary>
+[Collection("Agentic search")]
 public sealed class AgenticSearchExecutorTests : IDisposable
 {
     private readonly Dictionary<string, string?> _savedEnv = new();
@@ -122,6 +126,22 @@ public sealed class AgenticSearchExecutorTests : IDisposable
         hint.GetString().Should().Contain(AgenticSearchExecutor.BaseUrlEnvVar);
     }
 
+    [Theory]
+    [InlineData("not-a-url")]
+    [InlineData("http://")]
+    [InlineData("file:///tmp/retriever")]
+    [InlineData("ftp://127.0.0.1:9000")]
+    public async Task RunAsync_returns_error_envelope_for_invalid_service_url(string url)
+    {
+        SetEnv(AgenticSearchExecutor.BaseUrlEnvVar, url);
+
+        var raw = await AgenticSearchExecutor.RunAsync("hi", maxDocuments: 5, logger: _logger);
+
+        using var doc = JsonDocument.Parse(raw);
+        doc.RootElement.GetProperty("error").GetString().Should().Be(
+            $"{AgenticSearchExecutor.BaseUrlEnvVar} must be an absolute HTTP or HTTPS URL.");
+    }
+
     [Fact]
     public async Task RunAsync_returns_error_envelope_when_service_times_out()
     {
@@ -140,6 +160,49 @@ public sealed class AgenticSearchExecutorTests : IDisposable
 
         using var doc = JsonDocument.Parse(raw);
         doc.RootElement.GetProperty("error").GetString().Should().Contain("timed out after 1s");
+    }
+
+    [Fact]
+    public async Task AgenticSearch_cancels_pending_http_request_from_sdk()
+    {
+        using var application = new McpTestApplicationFactory();
+        using var client = application.CreateClient();
+        var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var response = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var server = StubServer.Start(async (ctx, _) =>
+        {
+            received.TrySetResult();
+            return await response.Task;
+        });
+        SetEnv(AgenticSearchExecutor.BaseUrlEnvVar, server.BaseUrl);
+        SetEnv(AgenticSearchExecutor.TimeoutEnvVar, "30");
+
+        var tool = McpServerTool.Create(typeof(CosmosDbTools).GetMethod("AgenticSearch")!, (object?)null);
+        tool.ProtocolTool.InputSchema.GetProperty("properties").EnumerateObject()
+            .Select(property => property.Name).Should().BeEquivalentTo(
+                "query", "maxDocuments", "database", "container", "schemaOverride");
+        var request = new RequestContext<CallToolRequestParams>(Mock.Of<McpServer>(),
+            new JsonRpcRequest { Id = new RequestId(1), Method = "tools/call" },
+            new CallToolRequestParams
+            {
+                Name = "agentic_search",
+                Arguments = new Dictionary<string, JsonElement> { ["query"] = JsonSerializer.SerializeToElement("hi") }
+            });
+        using var cancellation = new CancellationTokenSource();
+        var invocation = tool.InvokeAsync(request, cancellation.Token).AsTask();
+        try
+        {
+            await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+            Func<Task> pending = async () => { await invocation.WaitAsync(TimeSpan.FromSeconds(5)); };
+            await pending.Should().ThrowAsync<OperationCanceledException>();
+        }
+        finally
+        {
+            response.TrySetResult("{}");
+            try { await invocation.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (OperationCanceledException) { }
+        }
     }
 
     private static int GetFreePort()
@@ -170,6 +233,9 @@ public sealed class AgenticSearchExecutorTests : IDisposable
         }
 
         public static StubServer Start(Func<HttpListenerContext, string, string> handler)
+            => Start((context, body) => Task.FromResult(handler(context, body)));
+
+        public static StubServer Start(Func<HttpListenerContext, string, Task<string>> handler)
         {
             var port = GetFreePort();
             var baseUrl = $"http://127.0.0.1:{port}";
@@ -181,7 +247,7 @@ public sealed class AgenticSearchExecutorTests : IDisposable
             return server;
         }
 
-        private async Task LoopAsync(Func<HttpListenerContext, string, string> handler)
+        private async Task LoopAsync(Func<HttpListenerContext, string, Task<string>> handler)
         {
             while (!_cts.IsCancellationRequested)
             {
@@ -203,7 +269,7 @@ public sealed class AgenticSearchExecutorTests : IDisposable
                         reqBody = await reader.ReadToEndAsync().ConfigureAwait(false);
                     }
 
-                    var responseBody = handler(ctx, reqBody);
+                    var responseBody = await handler(ctx, reqBody);
                     var buffer = Encoding.UTF8.GetBytes(responseBody);
                     ctx.Response.ContentLength64 = buffer.Length;
                     await ctx.Response.OutputStream.WriteAsync(buffer).ConfigureAwait(false);
@@ -225,3 +291,6 @@ public sealed class AgenticSearchExecutorTests : IDisposable
         }
     }
 }
+
+[CollectionDefinition("Agentic search", DisableParallelization = true)]
+public sealed class AgenticSearchCollection;
