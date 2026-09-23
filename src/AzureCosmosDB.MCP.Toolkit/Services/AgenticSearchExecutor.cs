@@ -6,13 +6,13 @@ namespace AzureCosmosDB.MCP.Toolkit.Services;
 
 /// <summary>
 /// Calls the long-lived <c>cosmos-retriever</c> FastAPI service over HTTP and
-/// returns its response body (a single JSON document) verbatim.
+/// returns its response body with surrounding whitespace removed.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The Python helper runs a multi-turn retrieval agent against an Azure Cosmos
 /// DB corpus and returns a JSON document of curated, ranked results. It is
-/// started once (<c>python -m cosmos_retriever serve</c>) and kept warm so the
+/// started separately and kept warm so the
 /// heavy clients (Cosmos SDK, embeddings, model encoder) are not re-initialised
 /// on every call.
 /// </para>
@@ -70,13 +70,14 @@ public static class AgenticSearchExecutor
     /// <param name="container">Optional Cosmos container override.</param>
     /// <param name="schemaOverride">Optional schema override as a JSON object (keys:
     /// document_id_path, chunk_id_path, chunk_order_path, title_path, source_path,
-    /// item_id_path, use_dunder_codec), or "none" for pure discovery.</param>
+    /// item_id_path, use_dunder_codec), or "none" to omit the override.</param>
     /// <param name="cancellationToken">A token the caller can trip to abort the request early.</param>
     /// <returns>
-    /// The service's response body as a single JSON document. On any failure
-    /// (service unreachable, timed out, non-success status, empty body) returns
-    /// a serialised <c>{ "error": "...", ... }</c> envelope so the MCP tool
-    /// always returns parseable JSON to the caller.
+    /// The service's response body with surrounding whitespace removed.
+    /// Connection failures, request timeouts, and empty responses return a
+    /// serialised <c>{ "error": "...", ... }</c> envelope. Non-success responses
+    /// that look like JSON are passed through, otherwise they are wrapped in an
+    /// error envelope. Response bodies are not validated as JSON.
     /// </returns>
     /// <remarks>
     /// The optional tuning knobs are forwarded to the retriever service as a
@@ -152,7 +153,7 @@ public static class AgenticSearchExecutor
                 "agentic_search: failed to reach the cosmos-retriever service at {BaseUrl}.", baseUrl);
             return ErrorEnvelope(
                 $"Failed to reach the cosmos-retriever service: {ex.Message}",
-                hint: $"Start it with 'python -m cosmos_retriever serve' and set {BaseUrlEnvVar} to its base URL (default {DefaultBaseUrl}).");
+                hint: $"Check that the cosmos-retriever service is running and set {BaseUrlEnvVar} to its base URL (default {DefaultBaseUrl}).");
         }
 
         using (response)
