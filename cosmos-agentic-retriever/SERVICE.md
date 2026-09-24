@@ -65,11 +65,51 @@ curl --fail-with-body http://127.0.0.1:9000/search \
 ```
 
 `POST /search` accepts `query`, `maxDocuments` (1-50, default 20), and optional
-`database` and `container`. Omit `container` to search all configured containers,
+`database`, `container`, and `container_filters`. Omit `container` to search all configured containers,
 or name one to restrict the search. Omitted `database` uses the configured database.
 Other databases, unconfigured containers, and `*` are rejected. Nonempty `overrides`
 objects are rejected. The old single-container environment settings are replaced
 by `COSMOS_CONTAINERS`; there is no implicit fallback to those settings.
+
+### Per-Container Filters
+
+Use stored Cosmos paths for each container's filters. For the two containers
+configured above, a request can apply different publication-year fields:
+
+```json
+{
+  "query": "battery recycling",
+  "maxDocuments": 5,
+  "container_filters": {
+    "articles": [{"kind": "range", "path": "/publication/year", "minimum": 2020}],
+    "reports": [{"kind": "range", "path": "/publishedYear", "minimum": 2020}]
+  }
+}
+```
+
+Supported conditions are `equals` with `value`, `range` with inclusive `minimum`
+and/or `maximum`, and `in` with `values`. Conditions within one container are ANDed.
+A range needs at least one bound. Values are passed as SQL parameters.
+
+Omit `container_filters` or use null for an unfiltered search. When supplied, the
+map must name every selected container and no others. Use `[]` to explicitly leave
+one selected container unfiltered. An empty map or a missing/extra target returns
+400 before any query. A malformed path or filter returns 422 before any query.
+If `container` selects one target, the map must contain only that target.
+
+Paths use the same slash/JSON-quoted segment syntax as the schema. They are not
+logical aliases, raw SQL, indexing wildcards, or schema overrides. The service
+validates syntax but does not discover whether the field exists or what it means.
+Missing fields follow Cosmos comparison semantics. A filter can reference a field
+that is not projected. Output mappings such as `source_path` and `metadata_paths`
+do not affect filters, and `source` may also be a metadata label. No additional
+startup filter mapping is required. Configured partition restrictions still apply.
+
+Python query-engine callers use `EqualsFilter(path="/source", value="SciFact")`
+and equivalent `RangeFilter`/`InFilter` inputs. The old `logical_field` argument
+is rejected rather than interpreted as a path or silently ignored.
+
+### Results
 
 The response contains `documents`, `searched`, `errors`, and `partial`:
 
@@ -124,6 +164,11 @@ container, at startup. It closes owned resources at shutdown or after failed sta
 Injected retrievers remain
 caller-owned. Blocking work runs off the HTTP event loop. An HTTP caller timeout
 does not cancel an already-running synchronous SDK query.
+
+The existing .NET caller does not yet forward `container_filters`. The filter
+contract above is available to direct HTTP/Python callers. Agent tool arguments
+and field information from explicit service configuration require separate wiring.
+There is no automatic schema discovery in this service.
 
 ## Checks
 

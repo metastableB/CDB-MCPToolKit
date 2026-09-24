@@ -69,7 +69,7 @@ and md_0 for /year. The client is closed when the with block exits.
         query="battery recycling",
         max_terms=30,
         text_paths=[CosmosPath.parse("/text")],
-        filters=[RangeFilter(logical_field="year", minimum=2020)],
+        filters=[RangeFilter(path="/year", minimum=2020)],
         limit=5,
         ignored_item_ids=[],
         partition_key=None,

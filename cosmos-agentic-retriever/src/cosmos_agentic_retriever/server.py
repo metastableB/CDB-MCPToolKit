@@ -33,6 +33,7 @@ from cosmos_agentic_retriever.query_engine import CosmosExecutor
 from cosmos_agentic_retriever.query_engine.full_text_terms import tokenize_for_fts
 from cosmos_agentic_retriever.query_engine.retriever import CorpusRetriever
 from cosmos_agentic_retriever.query_engine.types import (
+    FilterExpression,
     QueryCompilationError,
     RetrievalError,
 )
@@ -52,6 +53,7 @@ class SearchRequest(BaseModel):
     )
     database: str | None = Field(default=None, min_length=1, max_length=256)
     container: str | None = Field(default=None, min_length=1, max_length=256)
+    container_filters: dict[str, list[FilterExpression]] | None = None
     overrides: dict[str, Any] | None = None
 
     @field_validator("query")
@@ -203,12 +205,26 @@ def create_app(
                 if request.container is not None
                 else list(resolved.cosmos_containers)
             )
+            if request.container_filters is not None and set(
+                request.container_filters
+            ) != set(names):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": "container_filters must name every selected container and no others. Use [] for an unfiltered container."
+                    },
+                )
             requests = {
                 ContainerTarget(resolved.cosmos_database, name): QuerySearchRequest(
                     query=request.query,
                     limit=request.max_documents,
                     text_fields=selected_fields[name].copy(),
                     partition_key=resolved.cosmos_containers[name].partition_key,
+                    filters=(
+                        request.container_filters[name]
+                        if request.container_filters is not None
+                        else []
+                    ),
                 )
                 for name in names
             }

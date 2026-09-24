@@ -47,7 +47,7 @@ def test_runs_compiler_output(
     )
     compiled = compiler.compile_structured(
         limit=2,
-        filters=[EqualsFilter(logical_field="item_id", value="item-1")],
+        filters=[EqualsFilter(path="/id", value="item-1")],
         ignored_item_ids=[],
         partition_key=partition_key,
         cross_partition=cross_partition,

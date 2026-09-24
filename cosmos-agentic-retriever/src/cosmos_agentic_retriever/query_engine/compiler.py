@@ -21,9 +21,9 @@ The first four methods additionally accept a list of filters:
 
 Multiple filters are combined with AND.
 
-CorpusSchema maps filter names to stored fields. For example, "year" can refer
-to /publication/year. Each method returns a CompiledCosmosQuery with the SQL
-command in its sql field and a list of placeholder values in its parameters field.
+Filters name stored field paths, such as /publication/year. CorpusSchema only
+maps returned fields and item identities. Each method returns a CompiledCosmosQuery
+with SQL in its sql field and placeholder values in its parameters field.
 For example, a year filter becomes c["publication"]["year"] = @p1 in the SQL,
 with {"name": "@p1", "value": 2020} in that list. @p1 is a SQL placeholder:
 Cosmos DB receives its value separately and treats it as data, not SQL code.
@@ -73,23 +73,6 @@ class CosmosQueryCompiler:
     def __init__(self, schema: CorpusSchema) -> None:
         self.schema = schema
 
-    def _resolve_logical(self, name: str) -> CosmosPath:
-        s = self.schema
-        mapping: dict[str, CosmosPath | None] = {
-            "item_id": s.item_id_path,
-            "document_id": s.document_id_path,
-            "chunk_id": s.chunk_id_path,
-            "chunk_order": s.chunk_order_path,
-            "title": s.title_path,
-            "source": s.source_path,
-        }
-        path = mapping.get(name)
-        if path is not None:
-            return path
-        if name in s.metadata_paths:
-            return CosmosPath.parse(s.metadata_paths[name])
-        raise QueryCompilationError(f"unknown logical field {name!r}")
-
     @staticmethod
     def _limit(bag: _ParamBag, value: int) -> str:
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
@@ -130,7 +113,7 @@ class CosmosQueryCompiler:
         return select, aliases
 
     def _compile_filter(self, f: FilterExpression, bag: _ParamBag) -> str:
-        path = self._resolve_logical(f.logical_field).render(_ALIAS)
+        path = CosmosPath.parse(f.path).render(_ALIAS)
         if isinstance(f, EqualsFilter):
             return f"{path} = {bag.add(f.value)}"
         if isinstance(f, RangeFilter):

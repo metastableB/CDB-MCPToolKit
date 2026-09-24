@@ -28,8 +28,8 @@ automatically. These settings describe stored data; they do not change it.
 
 Unknown settings are rejected. Replacing a field validates its new value;
 in-place list or dictionary edits are checked again before query compilation.
-Metadata names cannot reuse item_id, document_id, chunk_id, chunk_order, title,
-or source, because those names already have a meaning in compiler filters.
+Metadata names label fields inside the result's metadata object. They may match
+standard result names such as source. Filters use stored paths, not these names.
 
 TODO: The schema here feels adhoc and non-generalizable. Revisit this design.
 """
@@ -38,7 +38,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from cosmos_agentic_retriever.query_engine.paths import CosmosPath, coerce_path
 from cosmos_agentic_retriever.query_engine.types import UnknownField
@@ -65,28 +65,8 @@ class CorpusSchema(BaseModel):
     title_path: PathField | None = None
     # Path to a source reference or label to return, e.g. /url or /source_type.
     source_path: PathField | None = None
-    # Extra fields to return and filter on, e.g. {"year": "/publication/year"}.
+    # Extra fields to return, e.g. {"year": "/publication/year"}.
     metadata_paths: dict[str, PathField] = Field(default_factory=dict)
-
-    @field_validator("metadata_paths")
-    @classmethod
-    def _check_metadata_names(
-        cls, paths: dict[str, CosmosPath]
-    ) -> dict[str, CosmosPath]:
-        reserved = {
-            "item_id",
-            "document_id",
-            "chunk_id",
-            "chunk_order",
-            "title",
-            "source",
-        }
-        conflicts = reserved.intersection(paths)
-        if conflicts:
-            raise ValueError(
-                f"metadata names are reserved: {', '.join(sorted(conflicts))}"
-            )
-        return paths
 
     def text_field_map(self) -> dict[str, CosmosPath]:
         """Return a lookup for the text paths configured in this schema.

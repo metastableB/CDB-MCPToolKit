@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from cosmos_agentic_retriever.query_engine.compiler import CosmosQueryCompiler
 from cosmos_agentic_retriever.query_engine.paths import CosmosPath
@@ -116,7 +117,7 @@ def test_compiler_preserves_literal_slashes_in_schema_paths() -> None:
 def test_structured_equals_filter_is_parameterized() -> None:
     q = _compiler().compile_structured(
         limit=10,
-        filters=[EqualsFilter(logical_field="year", value=2020)],
+        filters=[EqualsFilter(path="/year", value=2020)],
         ignored_item_ids=[],
         partition_key=None,
         cross_partition=True,
@@ -130,7 +131,7 @@ def test_structured_equals_filter_is_parameterized() -> None:
 def test_range_filter_emits_both_bounds() -> None:
     q = _compiler().compile_structured(
         limit=5,
-        filters=[RangeFilter(logical_field="year", minimum=2000, maximum=2020)],
+        filters=[RangeFilter(path="/year", minimum=2000, maximum=2020)],
         ignored_item_ids=[],
         partition_key=None,
         cross_partition=True,
@@ -143,7 +144,7 @@ def test_range_filter_emits_both_bounds() -> None:
 def test_range_filter_with_only_minimum() -> None:
     q = _compiler().compile_structured(
         limit=5,
-        filters=[RangeFilter(logical_field="year", minimum=2000)],
+        filters=[RangeFilter(path="/year", minimum=2000)],
         ignored_item_ids=[],
         partition_key=None,
         cross_partition=True,
@@ -155,7 +156,7 @@ def test_range_filter_with_only_minimum() -> None:
 def test_in_filter_uses_array_contains() -> None:
     q = _compiler().compile_structured(
         limit=5,
-        filters=[InFilter(logical_field="source", values=["news", "blog"])],
+        filters=[InFilter(path="/source_type", values=["news", "blog"])],
         ignored_item_ids=[],
         partition_key=None,
         cross_partition=True,
@@ -318,8 +319,8 @@ def _compile_contract_query(
             limit=limit,
             ignored_item_ids=["skip-1"],
             filters=[
-                EqualsFilter(logical_field="category", value="report"),
-                RangeFilter(logical_field="year", minimum=2000, maximum=2020),
+                EqualsFilter(path="/category", value="report"),
+                RangeFilter(path="/publication/year", minimum=2000, maximum=2020),
             ],
         )
     if method in ("compile_vector", "compile_hybrid"):
@@ -459,11 +460,11 @@ def test_document_read_without_document_id_path_raises() -> None:
 # --- errors & injection safety -------------------------------------------
 
 
-def test_unknown_logical_field_raises() -> None:
-    with pytest.raises(QueryCompilationError):
+def test_bare_filter_name_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="path must start"):
         _compiler().compile_structured(
             limit=5,
-            filters=[EqualsFilter(logical_field="does_not_exist", value=1)],
+            filters=[EqualsFilter(path="does_not_exist", value=1)],
             ignored_item_ids=[],
             partition_key=None,
             cross_partition=True,
@@ -475,7 +476,7 @@ def test_filter_values_are_bound_never_inlined() -> None:
     malicious = "2020'; DROP TABLE Foo--"
     q = _compiler().compile_structured(
         limit=5,
-        filters=[EqualsFilter(logical_field="year", value=malicious)],
+        filters=[EqualsFilter(path="/year", value=malicious)],
         ignored_item_ids=[],
         partition_key=None,
         cross_partition=True,
@@ -483,3 +484,93 @@ def test_filter_values_are_bound_never_inlined() -> None:
     assert "DROP TABLE" not in q.sql
     assert 'c["year"] = @p1' in q.sql
     assert malicious in _param_values(q)
+
+
+def test_filter_path_does_not_require_projection_or_alias() -> None:
+    query = CosmosQueryCompiler(CorpusSchema(item_id_path="/id")).compile_structured(
+        limit=5,
+        filters=[RangeFilter(path="/publication/year", minimum=2020)],
+        ignored_item_ids=[],
+        partition_key=None,
+        cross_partition=True,
+    )
+    assert (
+        query.sql
+        == 'SELECT TOP @k0 c["id"] AS item_id FROM c WHERE (c["publication"]["year"] >= @p1)'
+    )
+    assert query.projected_aliases == {"item_id": "item_id"}
+
+
+def test_filter_and_output_source_names_are_independent() -> None:
+    from cosmos_agentic_retriever.query_engine.results_mapping import rows_to_items
+
+    schema = CorpusSchema(
+        item_id_path="/id", source_path="/url", metadata_paths={"source": "/source"}
+    )
+    query = CosmosQueryCompiler(schema).compile_structured(
+        limit=5,
+        filters=[EqualsFilter(path="/source", value="SciFact")],
+        ignored_item_ids=[],
+        partition_key=None,
+        cross_partition=True,
+    )
+    assert 'c["url"] AS source' in query.sql
+    assert 'c["source"] AS md_0' in query.sql
+    assert 'WHERE c["source"] = @p1' in query.sql
+    result = rows_to_items(
+        [{"item_id": "paper-7", "source": "https://example.com", "md_0": "SciFact"}],
+        strategy="structured",
+        projected_aliases=query.projected_aliases,
+    )[0]
+    assert result.source == "https://example.com"
+    assert result.metadata == {"source": "SciFact"}
+
+
+@pytest.mark.parametrize(
+    "filter_type,values",
+    [
+        (EqualsFilter, {"value": "selected"}),
+        (RangeFilter, {"maximum": 2024}),
+        (InFilter, {"values": ["selected"]}),
+    ],
+)
+def test_filter_paths_preserve_quoted_names_and_json_round_trip(filter_type, values):
+    stored_path = CosmosPath(segments=("source/path", 'quote" OR true --'))
+    condition = filter_type(path=stored_path, **values)
+    assert condition.path == str(stored_path)
+    assert filter_type.model_validate_json(condition.model_dump_json()) == condition
+    with pytest.raises(ValidationError, match="frozen"):
+        condition.path = "/changed"
+    query = CosmosQueryCompiler(CorpusSchema(item_id_path="/id")).compile_structured(
+        limit=2,
+        filters=[condition],
+        ignored_item_ids=[],
+        partition_key=None,
+        cross_partition=True,
+    )
+    assert stored_path.render() in query.sql
+    assert query.projected_aliases == {"item_id": "item_id"}
+
+
+@pytest.mark.parametrize(
+    "path", ["year", "", "/", "/year/", "/year//value", "/*", '/"broken', None, 42]
+)
+@pytest.mark.parametrize(
+    "filter_type,values",
+    [
+        (EqualsFilter, {"value": 1}),
+        (RangeFilter, {"minimum": 1}),
+        (InFilter, {"values": [1]}),
+    ],
+)
+def test_filter_paths_are_validated_before_compilation(path, filter_type, values):
+    with pytest.raises(ValidationError):
+        filter_type(path=path, **values)
+
+
+def test_filter_aliases_and_empty_ranges_are_not_silently_accepted():
+    with pytest.raises(ValidationError, match="logical_field"):
+        EqualsFilter(path="/year", logical_field="year", value=2020)
+    with pytest.raises(ValidationError, match="requires a minimum or maximum"):
+        RangeFilter(path="/year")
+    assert RangeFilter(path="/year", minimum=0).minimum == 0

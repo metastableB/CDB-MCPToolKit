@@ -259,6 +259,7 @@ def test_search_request_defaults() -> None:
     request = SearchRequest(query="q")
     assert request.max_documents == 20
     assert request.database is None and request.container is None
+    assert request.container_filters is None
     assert request.overrides is None
 
 
@@ -538,6 +539,141 @@ def _multi_app(monkeypatch, *, capacity=2, partition_key=0):
         query_engine={"max_concurrency": capacity},
     )
     return create_app(settings), containers, client
+
+
+@pytest.mark.parametrize("selected", [None, "A", "B"])
+def test_container_filters_use_each_targets_stored_paths(monkeypatch, selected):
+    app, containers, _ = _multi_app(monkeypatch)
+    paths = {"A": "/publication/year", "B": "/publishedYear"}
+    names = list(paths) if selected is None else [selected]
+    options = {} if selected is None else {"container": selected}
+    body = {
+        "query": "battery",
+        "maxDocuments": 3,
+        "container_filters": {
+            name: [{"kind": "range", "path": paths[name], "minimum": 2020}]
+            for name in names
+        },
+        **options,
+    }
+    with TestClient(app) as http:
+        response = http.post("/search", json=body)
+        assert response.status_code == 200
+        assert response.json()["partial"] is False
+        assert len(response.json()["documents"]) <= 3
+        assert {target["container"] for target in response.json()["searched"]} == set(
+            names
+        )
+        for name, container in containers.items():
+            if name not in names:
+                container.query_items.assert_not_called()
+                continue
+            arguments = container.query_items.call_args.kwargs
+            expression = (
+                'c["publication"]["year"]' if name == "A" else 'c["publishedYear"]'
+            )
+            assert f"WHERE ({expression} >= @p1)" in arguments["query"]
+            assert expression not in arguments["query"].split(" FROM c")[0]
+            assert arguments["parameters"] == [
+                {"name": "@k0", "value": 3},
+                {"name": "@p1", "value": 2020},
+            ]
+            if name == "B":
+                assert arguments["partition_key"] == 0
+            container.query_items.reset_mock()
+        assert all(item["metadata"] == {} for item in response.json()["documents"])
+        assert (
+            http.post("/search", json={"query": "battery", **options}).status_code
+            == 200
+        )
+        for name in names:
+            assert (
+                " WHERE " not in containers[name].query_items.call_args.kwargs["query"]
+            )
+
+
+def test_explicit_empty_filters_and_parameterized_values(monkeypatch):
+    app, containers, _ = _multi_app(monkeypatch)
+    value = "SciFact' OR true --"
+    with TestClient(app) as http:
+        response = http.post(
+            "/search",
+            json={
+                "query": "battery",
+                "container_filters": {
+                    "A": [{"kind": "equals", "path": "/source", "value": value}],
+                    "B": [],
+                },
+            },
+        )
+    assert response.status_code == 200
+    arguments = containers["A"].query_items.call_args.kwargs
+    assert 'WHERE c["source"] = @p1' in arguments["query"]
+    assert value not in arguments["query"]
+    assert arguments["parameters"][-1] == {"name": "@p1", "value": value}
+    assert " WHERE " not in containers["B"].query_items.call_args.kwargs["query"]
+
+
+@pytest.mark.parametrize(
+    "options,status",
+    [
+        ({"container_filters": {}}, 400),
+        ({"container_filters": {"A": []}}, 400),
+        ({"container_filters": {"A": [], "B": [], "unknown": []}}, 400),
+        ({"container": "A", "container_filters": {"A": [], "B": []}}, 400),
+        ({"container_filters": {"A": [], "unknown": []}}, 400),
+        (
+            {
+                "container_filters": {
+                    "A": [],
+                    "B": [{"kind": "equals", "path": "year", "value": 2020}],
+                }
+            },
+            422,
+        ),
+        (
+            {
+                "container_filters": {
+                    "A": [],
+                    "B": [{"kind": "equals", "logical_field": "year", "value": 2020}],
+                }
+            },
+            422,
+        ),
+        (
+            {
+                "container_filters": {
+                    "A": [],
+                    "B": [{"kind": "sql", "path": "/year", "value": 2020}],
+                }
+            },
+            422,
+        ),
+        (
+            {
+                "container_filters": {
+                    "A": [],
+                    "B": [
+                        {"kind": "equals", "path": "/year", "value": 2020, "typo": True}
+                    ],
+                }
+            },
+            422,
+        ),
+        ({"container_filters": {"A": [], "B": None}}, 422),
+        (
+            {"container_filters": {"A": [], "B": [{"kind": "range", "path": "/year"}]}},
+            422,
+        ),
+    ],
+)
+def test_invalid_container_filters_fail_before_any_query(monkeypatch, options, status):
+    app, containers, _ = _multi_app(monkeypatch)
+    with TestClient(app) as http:
+        response = http.post("/search", json={"query": "battery", **options})
+    assert response.status_code == status
+    for container in containers.values():
+        container.query_items.assert_not_called()
 
 
 @pytest.mark.parametrize("partition_key", [0, "", "tenant-b"])

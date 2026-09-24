@@ -106,9 +106,9 @@ def test_explicit_text_paths_are_deduplicated() -> None:
 @pytest.mark.parametrize(
     "name", ["item_id", "document_id", "chunk_id", "chunk_order", "title", "source"]
 )
-def test_metadata_cannot_shadow_builtin_names(name: str) -> None:
-    with pytest.raises(ValidationError, match="reserved"):
-        CorpusSchema(item_id_path="/id", metadata_paths={name: "/metadata/value"})
+def test_metadata_labels_can_match_standard_result_names(name: str) -> None:
+    schema = CorpusSchema(item_id_path="/id", metadata_paths={name: "/metadata/value"})
+    assert _compile(schema).projected_aliases["md_0"] == name
 
 
 def test_assignment_coerces_paths_and_rejects_invalid_updates() -> None:
@@ -119,8 +119,8 @@ def test_assignment_coerces_paths_and_rejects_invalid_updates() -> None:
     assert schema.text_paths == [CosmosPath.parse("/content/text")]
     assert schema.metadata_paths["year"] == CosmosPath.parse("/publication/year")
     assert schema.title_path == CosmosPath.parse("/title")
-    with pytest.raises(ValidationError, match="reserved"):
-        schema.metadata_paths = {"title": "/metadata/title"}
+    with pytest.raises(UnsafeCosmosPathError):
+        schema.metadata_paths = {"title": "invalid"}
     assert set(schema.metadata_paths) == {"year"}
     with pytest.raises(UnsafeCosmosPathError):
         schema.text_paths = ["invalid"]
@@ -138,10 +138,12 @@ def test_compiler_revalidates_in_place_edits() -> None:
     assert "txt_0" not in compiler.projection("@k0")[0]
     schema.text_paths.append("/content/text")
     schema.metadata_paths["year"] = "/publication/year"
-    assert schema.text_field_map() == {"/content/text": CosmosPath.parse("/content/text")}
+    assert schema.text_field_map() == {
+        "/content/text": CosmosPath.parse("/content/text")
+    }
     compiled = compiler.compile_structured(
         limit=5,
-        filters=[EqualsFilter(logical_field="year", value=2020)],
+        filters=[EqualsFilter(path="/publication/year", value=2020)],
         ignored_item_ids=[],
         partition_key=None,
         cross_partition=True,
@@ -151,13 +153,13 @@ def test_compiler_revalidates_in_place_edits() -> None:
     assert compiler.schema is schema
 
 
-@pytest.mark.parametrize("edit", ["invalid_text", "reserved_metadata"])
+@pytest.mark.parametrize("edit", ["invalid_text", "invalid_metadata_path"])
 def test_compiler_rejects_invalid_in_place_edits(edit: str) -> None:
     schema = CorpusSchema(item_id_path="/id")
     if edit == "invalid_text":
         schema.text_paths.append("invalid")
     else:
-        schema.metadata_paths["title"] = "/metadata/title"
+        schema.metadata_paths["title"] = "invalid"
     with pytest.raises((ValidationError, UnsafeCosmosPathError)):
         _compile(schema)
 
@@ -175,7 +177,7 @@ def test_compiler_rejects_invalid_in_place_edits(edit: str) -> None:
 def test_every_query_checks_schema_before_emitting_sql(method: str) -> None:
     schema = CorpusSchema(item_id_path="/id", document_id_path="/docid")
     compiler = CosmosQueryCompiler(schema)
-    schema.metadata_paths["title"] = CosmosPath.parse("/metadata/title")
+    schema.metadata_paths["title"] = "invalid"
     arguments = {"partition_key": None, "cross_partition": True}
     if method == "compile_document_read":
         arguments.update(document_id="report", max_chunks=5)
@@ -187,5 +189,5 @@ def test_every_query_checks_schema_before_emitting_sql(method: str) -> None:
         arguments.update(
             query="battery", text_paths=[CosmosPath.parse("/text")], max_terms=10
         )
-    with pytest.raises(ValidationError, match="reserved"):
+    with pytest.raises(UnsafeCosmosPathError, match="path must start"):
         getattr(compiler, method)(**arguments)

@@ -171,6 +171,10 @@ even if the interface checks pass. Combined tests verify all selected containers
 are searched, IDs stay distinct and the global cap holds. Scores on disjoint
 containers are fused by rank, not globally comparable BM25 scores.
 
+`test_per_container_filters_use_real_stored_paths` applies equals, range and in
+filters to the existing four containers. It checks exact item IDs using `/id` in
+flat records and `/record/id` in nested records. No additional fixtures are needed.
+
 ## Optional Cleanup
 
 ```bash

@@ -25,10 +25,19 @@ pytestmark = [
 ]
 
 
-def _search(client, *, query="battery recycling", container=None, limit=50):
+def _search(
+    client,
+    *,
+    query="battery recycling",
+    container=None,
+    limit=50,
+    container_filters=None,
+):
     body = {"query": query, "maxDocuments": limit}
     if container is not None:
         body["container"] = container
+    if container_filters is not None:
+        body["container_filters"] = container_filters
     response = client.post("/search", json=body)
     assert response.status_code == 200, response.text
     result = response.json()
@@ -225,3 +234,42 @@ def test_synthetic_and_real_containers_are_searched_together(
     assert all(item["container"] in names for item in result["documents"])
     if limit == 5:
         assert {item["container"] for item in result["documents"]} == names
+
+
+def test_per_container_filters_use_real_stored_paths(
+    live_http, live_settings, real_corpus
+):
+    synthetic_names = {fixture.name for fixture in fixtures()}
+    if not synthetic_names <= live_settings.cosmos_containers.keys():
+        pytest.skip("select both to test mixed synthetic and real containers")
+    real_id = min(real_corpus.queries[0].relevant_ids)
+    filters = {
+        "flat-v1": [{"kind": "equals", "path": "/id", "value": "shared"}],
+        "nested-v1": [
+            {"kind": "in", "path": "/record/id", "values": ["first-only"]},
+            {"kind": "range", "path": "/year", "minimum": 2025, "maximum": 2025},
+        ],
+        "fields-v1": [{"kind": "equals", "path": "/id", "value": "other-only"}],
+        real_corpus.fixture.name: [{"kind": "equals", "path": "/id", "value": real_id}],
+    }
+    expected = {
+        ("flat-v1", "shared"),
+        ("nested-v1", "first-only"),
+        ("fields-v1", "other-only"),
+        (real_corpus.fixture.name, real_id),
+    }
+    result = _ready(
+        lambda: _search(
+            live_http,
+            query=real_corpus.queries[0].text,
+            limit=5,
+            container_filters=filters,
+        ),
+        lambda result: (
+            {(item["container"], item["item_id"]) for item in result["documents"]}
+            == expected
+        ),
+    )
+    assert {entry["container"] for entry in result["searched"]} == set(filters)
+    assert len({item["retrieval_id"] for item in result["documents"]}) == 4
+    assert [item["rank"] for item in result["documents"]] == [0, 1, 2, 3]

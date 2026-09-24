@@ -212,8 +212,8 @@ def test_search_request_to_rows() -> None:
         text_fields=["/content/body"],
         partition_key=0,
         filters=[
-            RangeFilter(logical_field="year", minimum=2020),
-            EqualsFilter(logical_field="item_id", value="a"),
+            RangeFilter(path="/publication/year", minimum=2020),
+            EqualsFilter(path="/id", value="a"),
         ],
         ignored_item_ids=["skip"],
         max_terms=1,

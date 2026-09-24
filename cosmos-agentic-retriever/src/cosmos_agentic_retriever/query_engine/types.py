@@ -1,11 +1,11 @@
-"""Define the inputs, outputs, settings, and errors used by the query engine. """
+"""Define the inputs, outputs, settings, and errors used by the query engine."""
 
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
 # TODO: Is pydantic justified here? Isn't dataclass cleaner?
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class QueryEngineConfig(BaseModel):
@@ -48,22 +48,45 @@ class CrossPartitionQueryDisabled(RetrievalError):
 
 
 # Field conditions passed to the compiler's filters argument.
-class EqualsFilter(BaseModel):
+class FieldFilter(BaseModel):
+    """Identify a stored field by its Cosmos path, independently of result labels."""
+
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, revalidate_instances="always"
+    )
+
+    path: str
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def _validate_path(cls, value: Any) -> str:
+        from cosmos_agentic_retriever.query_engine.paths import CosmosPath
+
+        try:
+            return str(CosmosPath.parse(value))
+        except UnsafeCosmosPathError as error:
+            raise ValueError(str(error)) from error
+
+
+class EqualsFilter(FieldFilter):
     kind: Literal["equals"] = "equals"
-    logical_field: str
     value: Any
 
 
-class RangeFilter(BaseModel):
+class RangeFilter(FieldFilter):
     kind: Literal["range"] = "range"
-    logical_field: str
     minimum: Any | None = None
     maximum: Any | None = None
 
+    @model_validator(mode="after")
+    def _require_bound(self) -> RangeFilter:
+        if self.minimum is None and self.maximum is None:
+            raise ValueError("range filter requires a minimum or maximum")
+        return self
 
-class InFilter(BaseModel):
+
+class InFilter(FieldFilter):
     kind: Literal["in"] = "in"
-    logical_field: str
     values: list[Any]
 
 
