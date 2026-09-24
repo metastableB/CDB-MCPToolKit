@@ -101,7 +101,6 @@ def test_compiler_preserves_literal_slashes_in_schema_paths() -> None:
         partition_key=None,
         cross_partition=True,
         text_paths=schema.text_paths,
-        max_terms=10,
     )
     assert 'c["document/title"] AS txt_0' in compiled.sql
     assert 'c["document"]["title"] AS txt_1' in compiled.sql
@@ -200,7 +199,6 @@ def test_full_text_multiple_paths_uses_rank_rrf() -> None:
         partition_key=None,
         cross_partition=True,
         text_paths=[_TEXT, _BODY],
-        max_terms=10,
     )
     assert "ORDER BY RANK RRF(" in q.sql
     assert 'FullTextScore(c["text"], "quick", "brown")' in q.sql
@@ -208,10 +206,10 @@ def test_full_text_multiple_paths_uses_rank_rrf() -> None:
 
 
 @pytest.mark.parametrize("method", ["compile_full_text", "compile_hybrid"])
-@pytest.mark.parametrize("max_terms", [1, 40, 0])
-def test_compiler_forwards_per_call_term_limit(method: str, max_terms: int) -> None:
+@pytest.mark.parametrize("term_count", [30, 31, 100])
+def test_compiler_preserves_all_query_terms(method: str, term_count: int) -> None:
     compile_query = getattr(_compiler(), method)
-    terms = [f"term{index}" for index in range(45)]
+    terms = [f"term{index}" for index in range(term_count)]
     arguments = {
         "query": " ".join(terms),
         "limit": 5,
@@ -223,26 +221,39 @@ def test_compiler_forwards_per_call_term_limit(method: str, max_terms: int) -> N
     }
     if method == "compile_hybrid":
         arguments.update(query_vector=[0.1], vector_path=_VEC)
-    if max_terms == 0:
-        with pytest.raises(ValueError, match="max_terms must be a positive integer"):
-            compile_query(**arguments, max_terms=max_terms)
-    else:
-        result = compile_query(**arguments, max_terms=max_terms)
-        expected_terms = ", ".join(f'"{term}"' for term in terms[:max_terms])
-        for path in (_TEXT, _BODY):
-            assert f"FullTextScore({path.render()}, {expected_terms})" in result.sql
-        assert f'"term{max_terms}"' not in result.sql
-        assert _param(result, "@k0")["value"] == 5
+    result = compile_query(**arguments)
+    expected_terms = ", ".join(f'"{term}"' for term in terms)
+    for path in (_TEXT, _BODY):
+        assert f"FullTextScore({path.render()}, {expected_terms})" in result.sql
+    assert _param(result, "@k0")["value"] == 5
 
-    with pytest.raises(TypeError, match="max_terms"):
-        compile_query(**arguments)
+
+@pytest.mark.parametrize("method", ["compile_full_text", "compile_hybrid"])
+@pytest.mark.parametrize(
+    "query", ["the battery and recycling", "the and of", "not recyclable"]
+)
+def test_compiler_leaves_stopword_analysis_to_cosmos(method: str, query: str) -> None:
+    arguments = {
+        "query": query,
+        "limit": 5,
+        "ignored_item_ids": [],
+        "filters": [],
+        "partition_key": None,
+        "cross_partition": True,
+        "text_paths": [_TEXT, _BODY],
+    }
+    if method == "compile_hybrid":
+        arguments.update(query_vector=[0.1], vector_path=_VEC)
+    result = getattr(_compiler(), method)(**arguments)
+    expected_terms = ", ".join(f'"{term}"' for term in query.split())
+    for path in (_TEXT, _BODY):
+        assert f"FullTextScore({path.render()}, {expected_terms})" in result.sql
 
 
 @pytest.mark.parametrize("method", ["full_text", "hybrid"])
 def test_full_text_queries_require_searchable_terms(method: str) -> None:
     common = {
         "query": "!!!",
-        "max_terms": 10,
         "limit": 5,
         "ignored_item_ids": [],
         "filters": [],
@@ -261,7 +272,6 @@ def test_full_text_queries_require_searchable_terms(method: str) -> None:
 def test_full_text_queries_require_a_text_path(method: str) -> None:
     common = {
         "query": "query",
-        "max_terms": 10,
         "limit": 5,
         "ignored_item_ids": [],
         "filters": [],
@@ -290,7 +300,7 @@ def test_vector_queries_require_a_nonempty_vector(method: str) -> None:
     with pytest.raises(QueryCompilationError, match="vector must not be empty"):
         if method == "hybrid":
             _compiler().compile_hybrid(
-                query="query", text_paths=[_TEXT], max_terms=10, **common
+                query="query", text_paths=[_TEXT], **common
             )
         else:
             _compiler().compile_vector(**common)
@@ -327,7 +337,7 @@ def _compile_contract_query(
         arguments.update(query_vector=[0.1, 0.2], vector_path=_VEC)
     if method in ("compile_full_text", "compile_hybrid"):
         arguments.update(
-            query="the battery recycling", text_paths=[_TEXT], max_terms=10
+            query="the battery recycling", text_paths=[_TEXT]
         )
     return getattr(CosmosQueryCompiler(schema), method)(**arguments)
 
@@ -373,7 +383,7 @@ def test_queries_require_a_positive_integer_limit(method: str, limit: Any) -> No
         (
             "compile_full_text",
             'c["category"] = @p1 AND (c["publication"]["year"] >= @p2 AND c["publication"]["year"] <= @p3) AND NOT ARRAY_CONTAINS(@p4, c["id"])',
-            ' ORDER BY RANK FullTextScore(c["text"], "battery", "recycling")',
+            ' ORDER BY RANK FullTextScore(c["text"], "the", "battery", "recycling")',
             [
                 ("@k0", 1),
                 ("@p1", "report"),
@@ -386,7 +396,7 @@ def test_queries_require_a_positive_integer_limit(method: str, limit: Any) -> No
         (
             "compile_hybrid",
             'c["category"] = @p2 AND (c["publication"]["year"] >= @p3 AND c["publication"]["year"] <= @p4) AND NOT ARRAY_CONTAINS(@p5, c["id"])',
-            ' ORDER BY RANK RRF(VectorDistance(c["embedding"], @qVec1), FullTextScore(c["text"], "battery", "recycling"))',
+            ' ORDER BY RANK RRF(VectorDistance(c["embedding"], @qVec1), FullTextScore(c["text"], "the", "battery", "recycling"))',
             [
                 ("@k0", 1),
                 ("@qVec1", [0.1, 0.2]),

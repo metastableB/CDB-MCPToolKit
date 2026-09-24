@@ -228,10 +228,7 @@ def create_app(
                 )
                 for name in names
             }
-            first_request = next(iter(requests.values()))
-            if not tokenize_for_fts(
-                first_request.query, max_terms=first_request.max_terms
-            ):
+            if not tokenize_for_fts(request.query):
                 raise QueryCompilationError(
                     "full-text query must contain a searchable term"
                 )
