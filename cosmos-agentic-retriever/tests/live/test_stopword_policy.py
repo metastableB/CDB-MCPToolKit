@@ -1,4 +1,18 @@
-"""Compare full-text rankings with and without stopwords in a Cosmos test container."""
+"""Compare full-text rankings with and without stopwords in a Cosmos test container.
+
+Requires Azure CLI sign-in with Cosmos data-reader access and the azure-cosmos
+and azure-identity packages. Set COSMOS_TEST_ENDPOINT to the test account URL.
+COSMOS_TEST_DATABASE defaults to mcp-live-tests-v1 and must start with mcp-live-tests-.
+The flat-v1 container needs partition key /tenant, an en-US full-text policy and
+index on /text, and the three records defined in the test. Queries consume RUs;
+the test creates no resources and writes no data.
+
+Run from the package directory:
+    RUN_COSMOS_STOPWORD_LIVE=1 python -m pytest tests/live/test_stopword_policy.py -q -s
+
+Without the flag, the test skips. It asserts ranking for a query with mixed
+stopwords and prints all-stopword and contraction results for inspection.
+"""
 
 import json
 import os
