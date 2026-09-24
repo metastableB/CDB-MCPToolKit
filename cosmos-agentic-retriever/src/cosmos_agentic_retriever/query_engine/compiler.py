@@ -189,7 +189,7 @@ class CosmosQueryCompiler:
         text_paths: list[CosmosPath],
         max_terms: int = DEFAULT_MAX_FTS_TERMS,
     ) -> CompiledCosmosQuery:
-        """Build hybrid SQL, using at most max_terms text terms (default 30)."""
+        """Build hybrid SQL. Exceeding the application term budget (default 30) raises ValueError."""
         if not query_vector:
             raise QueryCompilationError("query vector must not be empty")
         terms = self._full_text_terms(query, text_paths, max_terms=max_terms)
@@ -252,7 +252,7 @@ class CosmosQueryCompiler:
         strategy: str = "full_text",
         max_terms: int = DEFAULT_MAX_FTS_TERMS,
     ) -> CompiledCosmosQuery:
-        """Build full-text SQL, using at most max_terms text terms (default 30)."""
+        """Build full-text SQL. Exceeding the application term budget (default 30) raises ValueError."""
         terms = self._full_text_terms(query, text_paths, max_terms=max_terms)
         bag = _ParamBag()
         limit_p = self._limit(bag, limit)

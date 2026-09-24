@@ -223,6 +223,9 @@ def test_compiler_forwards_per_call_term_limit(method: str, max_terms: int) -> N
         with pytest.raises(ValueError, match="max_terms must be a positive integer"):
             compile_query(**arguments, max_terms=max_terms)
     else:
+        with pytest.raises(ValueError, match=f"exceeds max_terms={max_terms}"):
+            compile_query(**arguments, max_terms=max_terms)
+        arguments["query"] = " ".join(terms[:max_terms])
         result = compile_query(**arguments, max_terms=max_terms)
         expected_terms = ", ".join(f'"{term}"' for term in terms[:max_terms])
         for path in (_TEXT, _BODY):
@@ -230,10 +233,36 @@ def test_compiler_forwards_per_call_term_limit(method: str, max_terms: int) -> N
         assert f'"term{max_terms}"' not in result.sql
         assert _param(result, "@k0")["value"] == 5
 
-    default_result = compile_query(**arguments)
     assert DEFAULT_MAX_FTS_TERMS == 30
+    arguments["query"] = " ".join(terms)
+    with pytest.raises(ValueError, match="exceeds max_terms=30"):
+        compile_query(**arguments)
+    arguments["query"] = " ".join(terms[:DEFAULT_MAX_FTS_TERMS])
+    default_result = compile_query(**arguments)
     assert '"term29"' in default_result.sql
     assert '"term30"' not in default_result.sql
+
+
+@pytest.mark.parametrize("method", ["compile_full_text", "compile_hybrid"])
+@pytest.mark.parametrize(
+    "query", ["the battery and recycling", "the and of", "not recyclable"]
+)
+def test_compiler_leaves_stopword_analysis_to_cosmos(method: str, query: str) -> None:
+    arguments = {
+        "query": query,
+        "limit": 5,
+        "ignored_item_ids": [],
+        "filters": [],
+        "partition_key": None,
+        "cross_partition": True,
+        "text_paths": [_TEXT, _BODY],
+    }
+    if method == "compile_hybrid":
+        arguments.update(query_vector=[0.1], vector_path=_VEC)
+    result = getattr(_compiler(), method)(**arguments)
+    expected_terms = ", ".join(f'"{term}"' for term in query.split())
+    for path in (_TEXT, _BODY):
+        assert f"FullTextScore({path.render()}, {expected_terms})" in result.sql
 
 
 @pytest.mark.parametrize("method", ["full_text", "hybrid"])
@@ -365,7 +394,7 @@ def test_queries_require_a_positive_integer_limit(method: str, limit: Any) -> No
         (
             "compile_full_text",
             'c["category"] = @p1 AND (c["publication"]["year"] >= @p2 AND c["publication"]["year"] <= @p3) AND NOT ARRAY_CONTAINS(@p4, c["id"])',
-            ' ORDER BY RANK FullTextScore(c["text"], "battery", "recycling")',
+            ' ORDER BY RANK FullTextScore(c["text"], "the", "battery", "recycling")',
             [
                 ("@k0", 1),
                 ("@p1", "report"),
@@ -378,7 +407,7 @@ def test_queries_require_a_positive_integer_limit(method: str, limit: Any) -> No
         (
             "compile_hybrid",
             'c["category"] = @p2 AND (c["publication"]["year"] >= @p3 AND c["publication"]["year"] <= @p4) AND NOT ARRAY_CONTAINS(@p5, c["id"])',
-            ' ORDER BY RANK RRF(VectorDistance(c["embedding"], @qVec1), FullTextScore(c["text"], "battery", "recycling"))',
+            ' ORDER BY RANK RRF(VectorDistance(c["embedding"], @qVec1), FullTextScore(c["text"], "the", "battery", "recycling"))',
             [
                 ("@k0", 1),
                 ("@qVec1", [0.1, 0.2]),
