@@ -5,7 +5,6 @@ from typing import Any
 import pytest
 
 from cosmos_agentic_retriever.query_engine.compiler import CosmosQueryCompiler
-from cosmos_agentic_retriever.query_engine.full_text_terms import DEFAULT_MAX_FTS_TERMS
 from cosmos_agentic_retriever.query_engine.paths import CosmosPath
 from cosmos_agentic_retriever.query_engine.schema import CorpusSchema
 from cosmos_agentic_retriever.query_engine.types import (
@@ -204,10 +203,10 @@ def test_full_text_multiple_paths_uses_rank_rrf() -> None:
 
 
 @pytest.mark.parametrize("method", ["compile_full_text", "compile_hybrid"])
-@pytest.mark.parametrize("max_terms", [1, 40, 0])
-def test_compiler_forwards_per_call_term_limit(method: str, max_terms: int) -> None:
+@pytest.mark.parametrize("term_count", [30, 31, 100])
+def test_compiler_preserves_all_query_terms(method: str, term_count: int) -> None:
     compile_query = getattr(_compiler(), method)
-    terms = [f"term{index}" for index in range(45)]
+    terms = [f"term{index}" for index in range(term_count)]
     arguments = {
         "query": " ".join(terms),
         "limit": 5,
@@ -219,21 +218,33 @@ def test_compiler_forwards_per_call_term_limit(method: str, max_terms: int) -> N
     }
     if method == "compile_hybrid":
         arguments.update(query_vector=[0.1], vector_path=_VEC)
-    if max_terms == 0:
-        with pytest.raises(ValueError, match="max_terms must be a positive integer"):
-            compile_query(**arguments, max_terms=max_terms)
-    else:
-        result = compile_query(**arguments, max_terms=max_terms)
-        expected_terms = ", ".join(f'"{term}"' for term in terms[:max_terms])
-        for path in (_TEXT, _BODY):
-            assert f"FullTextScore({path.render()}, {expected_terms})" in result.sql
-        assert f'"term{max_terms}"' not in result.sql
-        assert _param(result, "@k0")["value"] == 5
+    result = compile_query(**arguments)
+    expected_terms = ", ".join(f'"{term}"' for term in terms)
+    for path in (_TEXT, _BODY):
+        assert f"FullTextScore({path.render()}, {expected_terms})" in result.sql
+    assert _param(result, "@k0")["value"] == 5
 
-    default_result = compile_query(**arguments)
-    assert DEFAULT_MAX_FTS_TERMS == 30
-    assert '"term29"' in default_result.sql
-    assert '"term30"' not in default_result.sql
+
+@pytest.mark.parametrize("method", ["compile_full_text", "compile_hybrid"])
+@pytest.mark.parametrize(
+    "query", ["the battery and recycling", "the and of", "not recyclable"]
+)
+def test_compiler_leaves_stopword_analysis_to_cosmos(method: str, query: str) -> None:
+    arguments = {
+        "query": query,
+        "limit": 5,
+        "ignored_item_ids": [],
+        "filters": [],
+        "partition_key": None,
+        "cross_partition": True,
+        "text_paths": [_TEXT, _BODY],
+    }
+    if method == "compile_hybrid":
+        arguments.update(query_vector=[0.1], vector_path=_VEC)
+    result = getattr(_compiler(), method)(**arguments)
+    expected_terms = ", ".join(f'"{term}"' for term in query.split())
+    for path in (_TEXT, _BODY):
+        assert f"FullTextScore({path.render()}, {expected_terms})" in result.sql
 
 
 @pytest.mark.parametrize("method", ["full_text", "hybrid"])
@@ -365,7 +376,7 @@ def test_queries_require_a_positive_integer_limit(method: str, limit: Any) -> No
         (
             "compile_full_text",
             'c["category"] = @p1 AND (c["publication"]["year"] >= @p2 AND c["publication"]["year"] <= @p3) AND NOT ARRAY_CONTAINS(@p4, c["id"])',
-            ' ORDER BY RANK FullTextScore(c["text"], "battery", "recycling")',
+            ' ORDER BY RANK FullTextScore(c["text"], "the", "battery", "recycling")',
             [
                 ("@k0", 1),
                 ("@p1", "report"),
@@ -378,7 +389,7 @@ def test_queries_require_a_positive_integer_limit(method: str, limit: Any) -> No
         (
             "compile_hybrid",
             'c["category"] = @p2 AND (c["publication"]["year"] >= @p3 AND c["publication"]["year"] <= @p4) AND NOT ARRAY_CONTAINS(@p5, c["id"])',
-            ' ORDER BY RANK RRF(VectorDistance(c["embedding"], @qVec1), FullTextScore(c["text"], "battery", "recycling"))',
+            ' ORDER BY RANK RRF(VectorDistance(c["embedding"], @qVec1), FullTextScore(c["text"], "the", "battery", "recycling"))',
             [
                 ("@k0", 1),
                 ("@qVec1", [0.1, 0.2]),

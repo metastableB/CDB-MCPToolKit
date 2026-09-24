@@ -37,7 +37,6 @@ from __future__ import annotations
 from typing import Any
 
 from cosmos_agentic_retriever.query_engine.full_text_terms import (
-    DEFAULT_MAX_FTS_TERMS,
     fts_literal_args,
     tokenize_for_fts,
 )
@@ -163,12 +162,10 @@ class CosmosQueryCompiler:
     def _full_text_terms(
         query: str,
         text_paths: list[CosmosPath],
-        *,
-        max_terms: int = DEFAULT_MAX_FTS_TERMS,
     ) -> str:
         if not text_paths:
             raise QueryCompilationError("at least one text path is required")
-        terms = tokenize_for_fts(query, max_terms=max_terms)
+        terms = tokenize_for_fts(query)
         if not terms:
             raise QueryCompilationError(
                 "full-text query must contain a searchable term"
@@ -187,12 +184,11 @@ class CosmosQueryCompiler:
         cross_partition: bool,
         vector_path: CosmosPath,
         text_paths: list[CosmosPath],
-        max_terms: int = DEFAULT_MAX_FTS_TERMS,
     ) -> CompiledCosmosQuery:
-        """Build hybrid SQL, using at most max_terms text terms (default 30)."""
+        """Build SQL combining vector and full-text rankings with RRF."""
         if not query_vector:
             raise QueryCompilationError("query vector must not be empty")
-        terms = self._full_text_terms(query, text_paths, max_terms=max_terms)
+        terms = self._full_text_terms(query, text_paths)
         bag = _ParamBag()
         limit_p = self._limit(bag, limit)
         vec_p = bag.add(query_vector, prefix="qVec")
@@ -250,10 +246,9 @@ class CosmosQueryCompiler:
         cross_partition: bool,
         text_paths: list[CosmosPath],
         strategy: str = "full_text",
-        max_terms: int = DEFAULT_MAX_FTS_TERMS,
     ) -> CompiledCosmosQuery:
-        """Build full-text SQL, using at most max_terms text terms (default 30)."""
-        terms = self._full_text_terms(query, text_paths, max_terms=max_terms)
+        """Build SQL that ranks documents by full-text relevance."""
+        terms = self._full_text_terms(query, text_paths)
         bag = _ParamBag()
         limit_p = self._limit(bag, limit)
         select, aliases = self.projection(limit_p)
