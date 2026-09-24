@@ -1,4 +1,4 @@
-"""Read-only Cosmos comparison. Opt in only after the PR5 fixtures are ready."""
+"""Compare full-text rankings with and without stopwords in a Cosmos test container."""
 
 import json
 import os
@@ -12,7 +12,7 @@ from cosmos_agentic_retriever.query_engine.schema import CorpusSchema
 
 @pytest.mark.skipif(
     os.environ.get("RUN_COSMOS_STOPWORD_LIVE") != "1",
-    reason="requires an explicitly enabled Cosmos fixture account",
+    reason="set RUN_COSMOS_STOPWORD_LIVE=1 to run against a configured test container",
 )
 def test_stopword_policy_on_cosmos() -> None:
     from azure.cosmos import CosmosClient
