@@ -136,3 +136,7 @@ authorized configured containers, run the requests above, then call `agentic_sea
 from the toolkit. Check source identity, text paths, per-target partition routing,
 one/all target selection, limits, partial/all failure, and rejection of unconfigured
 targets. Do not write fixture records into a shared corpus.
+
+For repeatable live validation, follow the [live-test guide](tests/end_to_end/README.md).
+The setup script prepares persistent fixtures; a separate opt-in pytest suite
+checks them read-only. Setup and test execution can run as separate CI jobs.
