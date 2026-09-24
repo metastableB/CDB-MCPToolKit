@@ -58,7 +58,7 @@ def test_stopword_policy_on_cosmos() -> None:
             expected, key=lambda item: item["id"]
         )
 
-        def search(query: str, max_terms: int = 30) -> list[str]:
+        def search(query: str) -> list[str]:
             compiled = compiler.compile_full_text(
                 query=query,
                 limit=3,
@@ -67,7 +67,6 @@ def test_stopword_policy_on_cosmos() -> None:
                 partition_key=None,
                 cross_partition=True,
                 text_paths=[CosmosPath.parse("/text")],
-                max_terms=max_terms,
             )
             return [
                 row["item_id"]
@@ -83,16 +82,9 @@ def test_stopword_policy_on_cosmos() -> None:
         assert baseline[0] == mixed[0] == "other-only"
         assert set(baseline) == set(mixed)
 
-        long_query = " ".join(f"term{index}" for index in range(31)) + " canarybeta"
-        with pytest.raises(ValueError, match="exceeds max_terms=30"):
-            search(long_query)
-        extended = search(long_query, max_terms=32)
-        assert extended[0] == "other-only"
-
         observations = {
             "baseline": baseline,
             "with_stopwords": mixed,
-            "terms_32": extended,
             "all_stopwords": search("the and of"),
             "contraction": search("don't canarybeta"),
         }

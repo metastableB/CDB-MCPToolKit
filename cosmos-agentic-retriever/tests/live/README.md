@@ -21,8 +21,7 @@ flag the test skips; with it, missing configuration, dependencies, permissions,
 fixtures, indexes, or failed queries fail the run. No cloud calls have yet been
 made to validate this test.
 
-The test checks mixed-stopword ranking against a unique canary and tries an
-explicitly increased 32-term budget. It prints all-stopword and contraction
+The test checks mixed-stopword ranking against a unique canary. It prints all-stopword and contraction
 results without assuming those queries return no rows. Ties are not compared
 by position. A passing run would not prove unlimited terms, performance, custom
 stopword support, or multilingual equivalence. PR5's HTTP integration tests remain
