@@ -216,7 +216,6 @@ def test_search_request_to_rows() -> None:
             EqualsFilter(logical_field="item_id", value="a"),
         ],
         ignored_item_ids=["skip"],
-        max_terms=1,
     )
     before = request.model_dump()
     results = retriever.search(request)
@@ -225,7 +224,7 @@ def test_search_request_to_rows() -> None:
         'c["headline"] AS txt_1, c["publication"]["year"] AS md_0 FROM c '
         'WHERE (c["publication"]["year"] >= @p1) AND c["id"] = @p2 '
         'AND NOT ARRAY_CONTAINS(@p3, c["id"]) '
-        'ORDER BY RANK FullTextScore(c["content"]["body"], "battery")',
+        'ORDER BY RANK FullTextScore(c["content"]["body"], "battery", "recycling")',
         parameters=[
             {"name": "@k0", "value": 2},
             {"name": "@p1", "value": 2020},
@@ -247,14 +246,13 @@ def test_search_request_to_rows() -> None:
     assert request.model_dump() == before
 
 
-@pytest.mark.parametrize("options, expected_terms", [({}, 30), ({"max_terms": 35}, 35)])
-def test_search_term_limit_default_and_override(options, expected_terms) -> None:
+@pytest.mark.parametrize("term_count", [31, 100])
+def test_search_preserves_all_query_terms(term_count) -> None:
     retriever, container = _search_path()
-    terms = [f"term{index}" for index in range(40)]
-    request = SearchRequest(query=" ".join(terms), **options)
-    assert request.max_terms == expected_terms
+    terms = [f"term{index}" for index in range(term_count)]
+    request = SearchRequest(query=" ".join(terms))
     assert retriever.search(request) == []
-    literal_terms = ", ".join(f'"{term}"' for term in terms[:expected_terms])
+    literal_terms = ", ".join(f'"{term}"' for term in terms)
     container.query_items.assert_called_once_with(
         query='SELECT TOP @k0 c["id"] AS item_id, c["text"] AS txt_0 FROM c '
         f'ORDER BY RANK FullTextScore(c["text"], {literal_terms})',

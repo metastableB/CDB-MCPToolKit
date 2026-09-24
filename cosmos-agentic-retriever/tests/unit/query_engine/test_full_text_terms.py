@@ -1,7 +1,7 @@
 """Exhaustive tests for `cosmos_agentic_retriever.query_engine.full_text_terms`.
 
-Covers FTS tokenization (Unicode, lowering, dedup, stopwords, term cap, the
-all-stopword degenerate case) and, critically for security, the escaping in
+Covers FTS tokenization (Unicode, lowering, dedup, retained stopwords, and long
+queries) and, critically for security, the escaping in
 ``fts_literal_args`` that keeps a hostile term from breaking out of the quoted
 full-text literal it is embedded in.
 """
@@ -20,121 +20,91 @@ from cosmos_agentic_retriever.query_engine.full_text_terms import (
 
 @pytest.mark.parametrize("query", ["", "   ", "\n\t", "!!! ??? ...", "---"])
 def test_tokenize_empty_or_punctuation_only(query: str) -> None:
-    assert tokenize_for_fts(query, max_terms=10) == []
+    assert tokenize_for_fts(query) == []
 
 
 def test_tokenize_simple() -> None:
-    assert tokenize_for_fts("hello world", max_terms=10) == ["hello", "world"]
+    assert tokenize_for_fts("hello world") == ["hello", "world"]
 
 
 def test_tokenize_lowercases() -> None:
-    assert tokenize_for_fts("Hello WORLD FooBar", max_terms=10) == [
-        "hello",
-        "world",
-        "foobar",
-    ]
+    assert tokenize_for_fts("Hello WORLD FooBar") == ["hello", "world", "foobar"]
 
 
 def test_tokenize_dedupes_preserving_first_order() -> None:
-    assert tokenize_for_fts("bb aa bb cc aa", max_terms=10) == ["bb", "aa", "cc"]
+    assert tokenize_for_fts("bb aa bb cc aa") == ["bb", "aa", "cc"]
 
 
 def test_tokenize_dedupe_is_case_insensitive() -> None:
-    assert tokenize_for_fts("Hello hello HELLO", max_terms=10) == ["hello"]
+    assert tokenize_for_fts("Hello hello HELLO") == ["hello"]
 
 
 def test_tokenize_splits_on_punctuation() -> None:
-    assert tokenize_for_fts("foo, bar. baz! qux?", max_terms=10) == [
-        "foo",
-        "bar",
-        "baz",
-        "qux",
-    ]
+    assert tokenize_for_fts("foo, bar. baz! qux?") == ["foo", "bar", "baz", "qux"]
 
 
 def test_tokenize_keeps_digits_and_underscore() -> None:
-    assert tokenize_for_fts("abc 123 foo_bar", max_terms=10) == ["abc", "123", "foo_bar"]
+    assert tokenize_for_fts("abc 123 foo_bar") == ["abc", "123", "foo_bar"]
 
 
 def test_tokenize_dedupes_numbers() -> None:
-    assert tokenize_for_fts("1 1 2 2 3", max_terms=10) == ["1", "2", "3"]
+    assert tokenize_for_fts("1 1 2 2 3") == ["1", "2", "3"]
 
 
-def test_tokenize_removes_stopwords() -> None:
-    assert tokenize_for_fts("the cat and the dog", max_terms=10) == ["cat", "dog"]
+def test_tokenize_preserves_stopwords_for_cosmos() -> None:
+    assert tokenize_for_fts("the cat and the dog") == ["the", "cat", "and", "dog"]
 
 
-def test_tokenize_apostrophe_splits_and_drops_stopword_half() -> None:
-    # "don" is a stopword, apostrophe is a delimiter, so only "t" survives.
-    assert tokenize_for_fts("don't", max_terms=10) == ["t"]
+def test_tokenize_apostrophe_splits_without_filtering() -> None:
+    assert tokenize_for_fts("don't") == ["don", "t"]
 
 
 def test_tokenize_unicode_accented_words() -> None:
-    assert tokenize_for_fts("Café Über", max_terms=10) == ["café", "über"]
+    assert tokenize_for_fts("Café Über") == ["café", "über"]
 
 
 def test_tokenize_unicode_cjk() -> None:
-    assert tokenize_for_fts("机器 学习 机器", max_terms=10) == ["机器", "学习"]
+    assert tokenize_for_fts("机器 学习 机器") == ["机器", "学习"]
 
 
-def test_tokenize_all_stopwords_falls_back_to_original_terms() -> None:
-    assert tokenize_for_fts("the and of", max_terms=10) == ["the", "and", "of"]
-    assert tokenize_for_fts("THE AND OF", max_terms=10) == ["the", "and", "of"]
+def test_tokenize_preserves_all_stopword_queries() -> None:
+    assert tokenize_for_fts("the and of") == ["the", "and", "of"]
+    assert tokenize_for_fts("THE AND OF") == ["the", "and", "of"]
 
 
-def test_tokenize_caps_at_explicit_max_terms() -> None:
-    query = " ".join(f"w{i}" for i in range(40))
-    result = tokenize_for_fts(query, max_terms=30)
-    assert len(result) == 30
-    assert result == [f"w{i}" for i in range(30)]
+@pytest.mark.parametrize("term_count", [30, 31, 100])
+def test_tokenize_preserves_all_terms_in_long_queries(term_count: int) -> None:
+    terms = [f"w{index}" for index in range(term_count)]
+    assert tokenize_for_fts(" ".join(terms)) == terms
 
 
-def test_tokenize_cap_counts_distinct_only() -> None:
-    # Duplicates must not consume the term budget.
-    distinct = [f"t{i}" for i in range(30)]
-    query = " ".join(distinct + distinct + ["extra_beyond_cap"])
-    result = tokenize_for_fts(query, max_terms=30)
-    assert len(result) == 30
-    assert "extra_beyond_cap" not in result  # cap already reached by distinct set
+def test_tokenize_dedupes_long_queries_without_losing_tail() -> None:
+    distinct = [f"term{index}" for index in range(40)]
+    query = " ".join(distinct + distinct + ["recycling"])
+    assert tokenize_for_fts(query) == distinct + ["recycling"]
 
 
-@pytest.mark.parametrize("max_terms", [1, 3, 40])
-def test_tokenize_accepts_per_call_limit(max_terms: int) -> None:
-    terms = [f"term{index}" for index in range(45)]
-    query = " ".join(terms)
-    assert tokenize_for_fts(query, max_terms=max_terms) == terms[:max_terms]
-
-
-def test_custom_limit_applies_after_filtering_and_deduplication() -> None:
-    assert tokenize_for_fts("the battery BATTERY recycling policy", max_terms=2) == [
+def test_tokenize_dedupes_mixed_stopword_queries() -> None:
+    assert tokenize_for_fts("the battery BATTERY recycling") == [
+        "the",
         "battery",
         "recycling",
     ]
 
 
-def test_custom_limit_applies_to_stopword_fallback() -> None:
-    assert tokenize_for_fts("the and THE of", max_terms=2) == ["the", "and"]
+def test_tokenize_dedupes_all_stopword_queries() -> None:
+    assert tokenize_for_fts("the and THE of") == ["the", "and", "of"]
 
 
-@pytest.mark.parametrize("max_terms", [0, -1, 1.5, "3", None, True])
-def test_tokenize_rejects_invalid_limits(max_terms) -> None:
-    with pytest.raises(ValueError, match="max_terms must be a positive integer"):
-        tokenize_for_fts("battery recycling", max_terms=max_terms)
-
-
-def test_term_limit_is_keyword_only() -> None:
-    with pytest.raises(TypeError):
-        tokenize_for_fts("battery recycling", 1)
-
-
-def test_term_limit_is_required() -> None:
-    with pytest.raises(TypeError, match="max_terms"):
-        tokenize_for_fts("battery recycling")
+def test_tokenize_preserves_search_terms_after_stopword_prefix() -> None:
+    prefix = "a about above after again against all am an and any are as at be because been before being below"
+    query = prefix + " between both but by can did do does doing down battery recycling"
+    assert tokenize_for_fts(query) == query.split()
 
 
 def test_tokenize_injection_characters_are_stripped() -> None:
     # Quotes / semicolons / brackets are non-word chars -> removed at tokenization.
-    assert tokenize_for_fts('drop"; SELECT', max_terms=10) == ["drop", "select"]
+    assert tokenize_for_fts('drop"; SELECT') == ["drop", "select"]
 
 
 # ═══════════════════════════ fts_literal_args ═════════════════════════════

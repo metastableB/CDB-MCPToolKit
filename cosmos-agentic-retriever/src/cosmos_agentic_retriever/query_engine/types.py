@@ -94,7 +94,6 @@ class SearchRequest(BaseModel):
     # Return at most this many Cosmos items per search: limit=5 returns up to 5.
     # An item may be one chunk of a document, not a complete document.
     limit: int = Field(default=50, strict=True, gt=0)
-    max_terms: int = Field(default=30, strict=True, gt=0)
     ignored_item_ids: list[str] = Field(default_factory=list)
     filters: list[FilterExpression] = Field(default_factory=list)
     partition_key: Any | None = None

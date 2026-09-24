@@ -185,7 +185,7 @@ def test_every_query_checks_schema_before_emitting_sql(method: str) -> None:
         arguments.update(query_vector=[0.1], vector_path=CosmosPath.parse("/embedding"))
     if method in ("compile_full_text", "compile_hybrid"):
         arguments.update(
-            query="battery", text_paths=[CosmosPath.parse("/text")], max_terms=10
+            query="battery", text_paths=[CosmosPath.parse("/text")]
         )
     with pytest.raises(ValidationError, match="reserved"):
         getattr(compiler, method)(**arguments)
