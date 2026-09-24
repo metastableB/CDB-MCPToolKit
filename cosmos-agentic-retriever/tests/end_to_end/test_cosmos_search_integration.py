@@ -198,7 +198,7 @@ def test_real_corpus_query_returns_source_documents(
         }
         assert item["text"] and item["retrieval_strategy"] == "full_text"
         assert item["container"] == fixture.name
-        assert item["metadata"] == {"source": "beir-scifact"}
+        assert item["metadata"] == {"dataset_source": "beir-scifact"}
     returned = {item["item_id"] for item in documents}
     recall = len(returned & query.relevant_ids) / len(query.relevant_ids)
     record_property("query_id", query.query_id)

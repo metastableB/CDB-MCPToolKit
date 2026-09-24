@@ -86,6 +86,20 @@ def test_scifact_selection_is_repeatable_and_preserves_source(scifact_archive):
     assert len(corpus_loader.select_data("scifact", scifact_archive)[0]) == 1
 
 
+@pytest.mark.parametrize("data", ["scifact", "both"])
+def test_real_data_selection_builds_valid_service_settings(scifact_archive, data):
+    selected, _ = corpus_loader.select_data(data, scifact_archive)
+    settings = service_settings(
+        "https://example.documents.azure.com",
+        "mcp-live-tests-v1",
+        "azure_cli",
+        selected=selected,
+    )
+    schema = settings.cosmos_containers["scifact-100-v1"].cosmos_schema
+    assert set(schema.metadata_paths) == {"dataset_source"}
+    assert schema.metadata_paths["dataset_source"].segments == ("source",)
+
+
 def test_scifact_bad_input_fails_before_azure_calls(scifact_archive, monkeypatch):
     execute = Mock()
     monkeypatch.setattr(setup, "az_json", execute)

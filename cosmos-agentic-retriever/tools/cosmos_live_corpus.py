@@ -123,7 +123,7 @@ def load_scifact(path: Path) -> RealCorpus:
             {
                 "item_id_path": "/id",
                 "text_paths": ["/title", "/text"],
-                "metadata_paths": {"source": "/source"},
+                "metadata_paths": {"dataset_source": "/source"},
             },
             ("/title", "/text"),
             ("/title", "/text"),
