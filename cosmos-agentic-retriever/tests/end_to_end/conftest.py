@@ -7,16 +7,16 @@ from pathlib import Path
 import pytest
 from azure.cosmos import CosmosClient
 from azure.identity import AzureCliCredential, DefaultAzureCredential
-from cosmos_live_corpus import select_data
-from cosmos_live_fixtures import (
+from fastapi.testclient import TestClient
+from setup_cosmos_live_tests import (
     DEFAULT_DATABASE,
     fixtures,
     read_fixture_items,
+    select_data,
     service_settings,
     validate_container,
     validate_items,
 )
-from fastapi.testclient import TestClient
 
 from cosmos_agentic_retriever.server import create_app
 

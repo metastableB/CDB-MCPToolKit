@@ -1,6 +1,6 @@
 """Read-only synthetic, real-corpus, and combined-container search checks.
 
-Opt in with RUN_COSMOS_LIVE=1 after running tools/setup_cosmos_live_tests.py.
+Opt in with RUN_COSMOS_LIVE=1 after running tests/live/setup_cosmos_live_tests.py.
 Tests adapt the full-text, field, limit, and cross-collection assertions from
 PR #150 to versioned test data, without embeddings, discovery, or an LLM.
 HTTP uses FastAPI's in-process test transport, not the .NET/MCP network path.
@@ -12,9 +12,8 @@ import time
 from urllib.parse import unquote
 
 import pytest
-from cosmos_live_corpus import QUERY_COUNT
-from cosmos_live_fixtures import fixtures
 from fastapi.testclient import TestClient
+from setup_cosmos_live_tests import QUERY_COUNT, fixtures
 
 from cosmos_agentic_retriever.server import create_app
 

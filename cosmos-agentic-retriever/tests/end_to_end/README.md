@@ -20,7 +20,7 @@ alone does not grant data access; Cosmos Data Contributor alone does not grant
 management access. The script does not grant roles or enable account features.
 
 ```bash
-python tools/setup_cosmos_live_tests.py \
+python tests/live/setup_cosmos_live_tests.py \
   --subscription SUBSCRIPTION-ID \
   --resource-group RESOURCE-GROUP \
   --account COSMOS-ACCOUNT
@@ -50,13 +50,13 @@ uses the partition value `scifact` and full-text indexes on `/title` and `/text`
 
 ### Reproduce the Synthetic Data
 
-All nine synthetic documents are defined in [`fixtures()`](../../tools/cosmos_live_fixtures.py).
+All nine synthetic documents are defined in [`fixtures()`](../live/setup_cosmos_live_tests.py).
 There is no download, random sampling, or model generation. The text is literal,
 including `battery recycling canaryalpha` and the field-selection marker words.
 To inspect every document locally without Azure access:
 
 ```bash
-PYTHONPATH=tools python -c 'import json; from cosmos_live_fixtures import fixtures; print(json.dumps({fixture.name: fixture.items for fixture in fixtures()}, indent=2))'
+PYTHONPATH=tests/live python -c 'import json; from setup_cosmos_live_tests import fixtures; print(json.dumps({fixture.name: fixture.items for fixture in fixtures()}, indent=2))'
 ```
 
 Use the same repository revision for setup and tests. Running setup on a fresh
@@ -81,9 +81,7 @@ printf '%s  %s\n' \
   '536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165' \
   '.live-data/scifact.zip' | sha256sum --check
 
-python tools/cosmos_live_corpus.py --archive .live-data/scifact.zip
-
-python tools/setup_cosmos_live_tests.py \
+python tests/live/setup_cosmos_live_tests.py \
   --subscription SUBSCRIPTION-ID --resource-group RESOURCE-GROUP \
   --account COSMOS-ACCOUNT --data both \
   --scifact-archive .live-data/scifact.zip
@@ -121,9 +119,6 @@ Cosmos-generated metadata and still require exact application content.
 that configuration. Existing throughput is not changed. Full-text index/storage
 and queries may incur charges. Serialize setup runs for the same fixture database.
 If setup fails partway through, it leaves created resources for diagnosis/rerun.
-
-Add `--check-only` to validate without creating or writing anything. This script
-still reads management metadata; the tests below need only Cosmos data access.
 
 ## Run Read-Only Tests
 
@@ -177,18 +172,10 @@ flat records and `/record/id` in nested records. No additional fixtures are need
 
 ## Optional Cleanup
 
-```bash
-python tools/setup_cosmos_live_tests.py \
-  --subscription SUBSCRIPTION-ID --resource-group RESOURCE-GROUP --account COSMOS-ACCOUNT \
-  --data both --scifact-archive .live-data/scifact.zip \
-  --cleanup --confirm-cleanup mcp-live-tests-v1
-```
-
-Cleanup checks selected policies and records before deleting only the selected
-test containers. Foreign or changed records stop deletion. It never deletes
-the database or account, so shared database throughput may still be billable.
-Do not run cleanup or edit fixtures concurrently with setup/tests. No automatic
-cleanup happens on test success or failure.
+The setup tool never deletes anything. To remove fixtures, delete the selected
+test containers manually with `az cosmosdb sql container delete` or the portal.
+The database and account are retained, so shared database throughput may still be
+billable. Do not delete containers concurrently with setup or tests.
 
 ## GitHub Actions
 
