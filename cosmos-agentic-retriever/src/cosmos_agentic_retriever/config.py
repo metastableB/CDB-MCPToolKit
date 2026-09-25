@@ -34,6 +34,8 @@ class ContainerConfig(BaseModel):
 
     @model_validator(mode="after")
     def _searchable_fields(self) -> Self:
+        if not self.cosmos_schema.partition_key_paths:
+            raise ValueError("configure partition_key_paths for physical item identity")
         if not self.cosmos_schema.resolve_text_fields(self.search_text_fields):
             raise ValueError("configure at least one searchable text field")
         if (

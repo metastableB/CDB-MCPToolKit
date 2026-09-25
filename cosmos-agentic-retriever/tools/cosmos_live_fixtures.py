@@ -79,6 +79,7 @@ def fixtures() -> tuple[ContainerFixture, ...]:
             "flat-v1",
             {
                 "item_id_path": "/id",
+                "partition_key_paths": ["/tenant"],
                 "text_paths": ["/text"],
                 "metadata_paths": {"year": "/year"},
             },
@@ -90,6 +91,7 @@ def fixtures() -> tuple[ContainerFixture, ...]:
             "nested-v1",
             {
                 "item_id_path": "/record/id",
+                "partition_key_paths": ["/tenant"],
                 "text_paths": ["/content/body"],
                 "metadata_paths": {"year": "/year"},
             },
@@ -99,7 +101,11 @@ def fixtures() -> tuple[ContainerFixture, ...]:
         ),
         ContainerFixture(
             "fields-v1",
-            {"item_id_path": "/id", "text_paths": ["/title", "/body"]},
+            {
+                "item_id_path": "/id",
+                "partition_key_paths": ["/tenant"],
+                "text_paths": ["/title", "/body"],
+            },
             ("/title", "/body"),
             ("/body",),
             tuple(multiple),

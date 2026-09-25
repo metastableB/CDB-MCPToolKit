@@ -3,7 +3,7 @@
 Adapted from the original cross-collection retriever. Cosmos ranks within each
 container; reciprocal-rank combination interleaves those lists, not their BM25
 scores. Ties follow configured container order. Each hit keeps its original item
-ID and adds a retrieval_id that identifies its database, container, and item.
+ID and adds a retrieval_id for its database, container, partition key and physical ID.
 """
 
 from collections.abc import Mapping, Sequence
@@ -54,17 +54,22 @@ def fuse_rrf(
     chosen: dict[tuple[ContainerTarget, str], ContainerItem] = {}
     for target, items in ranked_lists:
         for position, item in enumerate(items):
-            key = (target, item.item_id)
+            if item.cosmos_identity is None:
+                raise ValueError(
+                    "physical Cosmos identity is required to combine results"
+                )
+            identity = item.cosmos_identity.key()
+            key = (target, identity)
             scores[key] = scores.get(key, 0.0) + 1.0 / (60 + position)
             if key not in chosen:
-                database, container, item_id = (
-                    quote(value, safe="") for value in (*target, item.item_id)
+                database, container, physical_key = (
+                    quote(value, safe="") for value in (*target, identity)
                 )
                 chosen[key] = ContainerItem(
                     **item.model_dump(),
                     database=target.database,
                     container=target.container,
-                    retrieval_id=f"{database}/{container}:{item_id}",
+                    retrieval_id=f"{database}/{container}:{physical_key}",
                 )
     result = []
     for rank, key in enumerate(

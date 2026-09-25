@@ -32,6 +32,23 @@ def test_minimal_schema_and_independent_defaults() -> None:
     first.metadata_paths["year"] = CosmosPath.parse("/year")
     assert second.text_paths == []
     assert second.metadata_paths == {}
+    first.partition_key_paths.append(CosmosPath.parse("/tenant"))
+    assert second.partition_key_paths == []
+
+
+@pytest.mark.parametrize(
+    "paths", [["/tenant", "/tenant"], ["/a", "/b", "/c", "/d"], ["tenant"], [None]]
+)
+def test_partition_identity_paths_are_validated(paths):
+    with pytest.raises((ValueError, UnsafeCosmosPathError)):
+        CorpusSchema(item_id_path="/id", partition_key_paths=paths)
+
+
+def test_partition_identity_paths_revalidated_before_projection():
+    schema = CorpusSchema(item_id_path="/id", partition_key_paths=["/tenant"])
+    schema.partition_key_paths.append(CosmosPath.parse("/tenant"))
+    with pytest.raises(ValueError, match="duplicates"):
+        _compile(schema)
 
 
 @pytest.mark.parametrize(
@@ -186,8 +203,6 @@ def test_every_query_checks_schema_before_emitting_sql(method: str) -> None:
     if method in ("compile_vector", "compile_hybrid"):
         arguments.update(query_vector=[0.1], vector_path=CosmosPath.parse("/embedding"))
     if method in ("compile_full_text", "compile_hybrid"):
-        arguments.update(
-            query="battery", text_paths=[CosmosPath.parse("/text")]
-        )
+        arguments.update(query="battery", text_paths=[CosmosPath.parse("/text")])
     with pytest.raises(UnsafeCosmosPathError, match="path must start"):
         getattr(compiler, method)(**arguments)

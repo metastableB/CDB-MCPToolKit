@@ -6,8 +6,10 @@ PR #150 to versioned test data, without embeddings, discovery, or an LLM.
 HTTP uses FastAPI's in-process test transport, not the .NET/MCP network path.
 """
 
+import json
 import os
 import time
+from urllib.parse import unquote
 
 import pytest
 from cosmos_live_corpus import QUERY_COUNT
@@ -76,6 +78,14 @@ def test_full_text_returns_fixture_ids_text_and_schema(
             else item["item_id"]
         )
         stored = next(record for record in fixture.items if record["id"] == physical_id)
+        assert item["cosmos_identity"] == {
+            "id": physical_id,
+            "partition_key": [stored["tenant"]],
+        }
+        assert json.loads(unquote(item["retrieval_id"].split(":", 1)[1])) == [
+            [stored["tenant"]],
+            physical_id,
+        ]
         expected_fields = {}
         for path in fixture.schema["text_paths"]:
             value = stored
@@ -201,6 +211,10 @@ def test_real_corpus_query_returns_source_documents(
     records = {item["id"]: item for item in fixture.items}
     for item in documents:
         stored = records[item["item_id"]]
+        assert item["cosmos_identity"] == {
+            "id": stored["id"],
+            "partition_key": ["scifact"],
+        }
         assert item["text_fields"] == {
             "/title": stored["title"],
             "/text": stored["text"],

@@ -122,6 +122,7 @@ def load_scifact(path: Path) -> RealCorpus:
             SCIFACT_CONTAINER,
             {
                 "item_id_path": "/id",
+                "partition_key_paths": ["/tenant"],
                 "text_paths": ["/title", "/text"],
                 "metadata_paths": {"dataset_source": "/source"},
             },

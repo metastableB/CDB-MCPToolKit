@@ -22,7 +22,11 @@ def _environment(monkeypatch):
         "COSMOS_CONTAINERS": json.dumps(
             {
                 "C": {
-                    "cosmos_schema": {"item_id_path": "/id", "text_paths": ["/text"]},
+                    "cosmos_schema": {
+                        "item_id_path": "/id",
+                        "partition_key_paths": ["/tenant"],
+                        "text_paths": ["/text"],
+                    },
                     "search_text_fields": ["/text"],
                 }
             }
@@ -78,7 +82,7 @@ def test_settings_do_not_implicitly_read_dotenv(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text(
         "ACCOUNT_URI=https://example.documents.azure.com\nCOSMOS_DATABASE=D\n"
-        'COSMOS_CONTAINERS={"C":{"cosmos_schema":{"item_id_path":"/id","text_paths":["/text"]}}}\n'
+        'COSMOS_CONTAINERS={"C":{"cosmos_schema":{"item_id_path":"/id","partition_key_paths":["/tenant"],"text_paths":["/text"]}}}\n'
     )
     with pytest.raises(ValidationError):
         get_settings()
@@ -92,7 +96,13 @@ def test_settings_do_not_implicitly_read_dotenv(monkeypatch, tmp_path):
         {"cosmos_containers": {}},
         {
             "cosmos_containers": {
-                "*": {"cosmos_schema": {"item_id_path": "/id", "text_paths": ["/text"]}}
+                "*": {
+                    "cosmos_schema": {
+                        "item_id_path": "/id",
+                        "partition_key_paths": ["/tenant"],
+                        "text_paths": ["/text"],
+                    }
+                }
             }
         },
         {"port": 0},
@@ -109,7 +119,13 @@ def test_settings_reject_invalid_configuration(options):
         "account_uri": "https://example.documents.azure.com",
         "cosmos_database": "D",
         "cosmos_containers": {
-            "C": {"cosmos_schema": {"item_id_path": "/id", "text_paths": ["/text"]}}
+            "C": {
+                "cosmos_schema": {
+                    "item_id_path": "/id",
+                    "partition_key_paths": ["/tenant"],
+                    "text_paths": ["/text"],
+                }
+            }
         },
     }
     with pytest.raises(ValidationError):
@@ -124,6 +140,7 @@ def test_settings_require_explicit_selection_for_multiple_fields():
             "C": {
                 "cosmos_schema": {
                     "item_id_path": "/id",
+                    "partition_key_paths": ["/tenant"],
                     "text_paths": ["/title", "/body"],
                 }
             }
@@ -142,7 +159,11 @@ def test_settings_require_explicit_selection_for_multiple_fields():
 @pytest.mark.parametrize("key", [0, "", "tenant"])
 def test_partition_key_is_per_container_and_falsey_keys_are_valid(key):
     config = ContainerConfig(
-        cosmos_schema={"item_id_path": "/id", "text_paths": ["/text"]},
+        cosmos_schema={
+            "item_id_path": "/id",
+            "partition_key_paths": ["/tenant"],
+            "text_paths": ["/text"],
+        },
         partition_key=key,
         partition_policy={"allow_cross_partition_search": False},
     )
@@ -152,8 +173,21 @@ def test_partition_key_is_per_container_and_falsey_keys_are_valid(key):
 def test_unscoped_cross_partition_disabled_is_rejected():
     with pytest.raises(ValidationError, match="partition key"):
         ContainerConfig(
-            cosmos_schema={"item_id_path": "/id", "text_paths": ["/text"]},
+            cosmos_schema={
+                "item_id_path": "/id",
+                "partition_key_paths": ["/tenant"],
+                "text_paths": ["/text"],
+            },
             partition_policy={"allow_cross_partition_search": False},
+        )
+
+
+@pytest.mark.parametrize("partition_key", [None, "fixed"])
+def test_physical_identity_requires_explicit_partition_paths(partition_key):
+    with pytest.raises(ValidationError, match="partition_key_paths"):
+        ContainerConfig(
+            cosmos_schema={"item_id_path": "/id", "text_paths": ["/text"]},
+            partition_key=partition_key,
         )
 
 
@@ -171,7 +205,13 @@ def test_serve_command(monkeypatch, arguments, host, port):
         account_uri="https://example.documents.azure.com",
         cosmos_database="D",
         cosmos_containers={
-            "C": {"cosmos_schema": {"item_id_path": "/id", "text_paths": ["/text"]}}
+            "C": {
+                "cosmos_schema": {
+                    "item_id_path": "/id",
+                    "partition_key_paths": ["/tenant"],
+                    "text_paths": ["/text"],
+                }
+            }
         },
     )
     monkeypatch.setattr(cli, "get_settings", Mock(return_value=settings))
@@ -204,7 +244,7 @@ def test_invalid_configuration_does_not_start_or_print_values(monkeypatch, capsy
         {"COSMOS_CONTAINERS": "private-malformed-json"},
         {"QUERY_ENGINE": "private-malformed-json"},
         {
-            "COSMOS_CONTAINERS": '{"C":{"cosmos_schema":{"item_id_path":"/id","text_paths":["/text"]},"search_text_fields":["/unconfigured"]}}'
+            "COSMOS_CONTAINERS": '{"C":{"cosmos_schema":{"item_id_path":"/id","partition_key_paths":["/tenant"],"text_paths":["/text"]},"search_text_fields":["/unconfigured"]}}'
         },
     ],
 )

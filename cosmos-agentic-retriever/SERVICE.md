@@ -12,7 +12,7 @@ indexes, or documents are created or changed by the service.
 ```bash
 export ACCOUNT_URI='https://YOUR-ACCOUNT.documents.azure.com:443/'
 export COSMOS_DATABASE='YOUR-DATABASE'
-export COSMOS_CONTAINERS='{"articles":{"cosmos_schema":{"item_id_path":"/id","text_paths":["/text"]}},"reports":{"cosmos_schema":{"item_id_path":"/id","text_paths":["/content/body"]}}}'
+export COSMOS_CONTAINERS='{"articles":{"cosmos_schema":{"item_id_path":"/id","partition_key_paths":["/tenant"],"text_paths":["/text"]}},"reports":{"cosmos_schema":{"item_id_path":"/id","partition_key_paths":["/tenant"],"text_paths":["/content/body"]}}}'
 export COSMOS_CREDENTIAL='azure_cli'
 az login
 python -m cosmos_agentic_retriever serve
@@ -32,6 +32,11 @@ automatically discovered `.env` file. Restart the service to change configuratio
   search scope; containers are not discovered automatically. All use full-text search.
 - Each entry requires `cosmos_schema`, using the existing `CorpusSchema` fields.
   Its text paths identify returned fields, not necessarily fields to search.
+- `cosmos_schema.partition_key_paths` must match the container's actual partition
+  key definition, in order. For example, `["/tenant"]`, or `["/tenant", "/region"]`
+  for a hierarchical key. These are field locations, not the `partition_key`
+  value used to restrict a query. Omitted paths fail configuration validation.
+  The service does not discover or verify the container definition automatically.
 - Each entry can set `search_text_fields`, a list such as `["/content/body"]`.
   Supply it when the schema contains multiple text fields. Select only indexed fields.
 - Each entry can set `partition_key` and `partition_policy`, for example
@@ -125,8 +130,28 @@ The response contains `documents`, `searched`, `errors`, and `partial`:
 Every item includes `database`, `container`, and `retrieval_id`, alongside `RetrievedItem` fields:
 `item_id`, `text`, `text_fields`, metadata, optional document/chunk/title/source
 fields, and a zero-based `rank`. Text-field keys are full paths such as `/text`.
-`item_id` remains the original Cosmos ID. Use `retrieval_id` to distinguish items
-across containers: it is `database/container:item_id` with each part percent-escaped.
+`item_id` is the string value at the configured `item_id_path`, which need not be
+Cosmos's physical `id`. `cosmos_identity` separately contains the physical `id`
+and ordered `partition_key` values. For example:
+
+```json
+{"item_id":"paper-7","cosmos_identity":{"id":"physical-42","partition_key":["tenant-A"]}}
+```
+
+`retrieval_id` is `database/container:identity`, with each part percent-escaped.
+The identity part is compact JSON `[partition_key_values, physical_id]`, such as
+`[["tenant-A"],"physical-42"]`. Treat the complete string as an opaque identifier.
+Different partition values or physical IDs produce distinct IDs even when logical
+`item_id` values match. Repeated appearances of the same physical item deduplicate.
+IDs do not depend on rank or which other containers were searched.
+
+Strings, numbers, booleans, null and undefined partition components remain distinct.
+An empty object `{}` denotes an undefined component. Numeric values use Cosmos's
+double precision semantics (1 and 1.0 identify the same partition). The projected
+partition paths must be correct; configuring an unrelated field is not safe.
+Incomplete physical identity from a query is an error, not a logical-ID fallback.
+This replaces the earlier `database/container:item_id` format. Existing clients
+must not construct or cache that older format as physical identity.
 Source fields are separate from metadata so they cannot overwrite stored metadata.
 Entries are stored items, potentially passages, not assembled documents.
 

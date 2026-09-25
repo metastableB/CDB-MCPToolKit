@@ -26,6 +26,11 @@ Only item_id_path is required to construct CorpusSchema. Omitting text_paths
 means no text fields are selected for output, not that text is discovered
 automatically. These settings describe stored data; they do not change it.
 
+partition_key_paths declares the actual container key paths in order. The compiler
+projects those values and physical /id separately from item_id_path. The HTTP
+service requires these paths to distinguish items across partitions. A standalone
+compiler schema may omit them, but its rows cannot be combined by physical identity.
+
 Unknown settings are rejected. Replacing a field validates its new value;
 in-place list or dictionary edits are checked again before query compilation.
 Metadata names label fields inside the result's metadata object. They may match
@@ -38,7 +43,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 from cosmos_agentic_retriever.query_engine.paths import CosmosPath, coerce_path
 from cosmos_agentic_retriever.query_engine.types import UnknownField
@@ -53,6 +58,8 @@ class CorpusSchema(BaseModel):
 
     # Path to the item's identifier field, e.g. /id.
     item_id_path: PathField
+    # Container partition-key paths in their declared order, e.g. ["/tenant"].
+    partition_key_paths: list[PathField] = Field(default_factory=list, max_length=3)
     # Paths to text fields to return, e.g. ["/title", "/content/text"].
     text_paths: list[PathField] = Field(default_factory=list)
     # Path to the source document ID shared by its chunks, e.g. /docid.
@@ -67,6 +74,13 @@ class CorpusSchema(BaseModel):
     source_path: PathField | None = None
     # Extra fields to return, e.g. {"year": "/publication/year"}.
     metadata_paths: dict[str, PathField] = Field(default_factory=dict)
+
+    @field_validator("partition_key_paths")
+    @classmethod
+    def _unique_partition_paths(cls, paths: list[CosmosPath]) -> list[CosmosPath]:
+        if len(set(paths)) != len(paths):
+            raise ValueError("partition_key_paths must not contain duplicates")
+        return paths
 
     def text_field_map(self) -> dict[str, CosmosPath]:
         """Return a lookup for the text paths configured in this schema.

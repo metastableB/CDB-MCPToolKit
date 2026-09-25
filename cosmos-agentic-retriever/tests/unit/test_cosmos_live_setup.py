@@ -238,7 +238,11 @@ def _database(records, *, selected=None):
 def test_explicit_container_set_controls_setup_records_and_settings(monkeypatch):
     fixture = ContainerFixture(
         "real-v1",
-        {"item_id_path": "/id", "text_paths": ["/text"]},
+        {
+            "item_id_path": "/id",
+            "partition_key_paths": ["/tenant"],
+            "text_paths": ["/text"],
+        },
         ("/text",),
         ("/text",),
         ({"id": "source-1", "tenant": "source", "text": "source text"},),

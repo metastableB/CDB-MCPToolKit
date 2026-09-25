@@ -109,6 +109,19 @@ class CosmosQueryCompiler:
             cols.append(f"{path.render(_ALIAS)} AS {alias}")
             aliases[alias] = key
 
+        if s.partition_key_paths:
+            # Preserve undefined components as {}, not null or a shortened array.
+            components = ", ".join(
+                f"IIF(IS_DEFINED({path.render(_ALIAS)}), {path.render(_ALIAS)}, {{}})"
+                for path in s.partition_key_paths
+            )
+            cols.append(
+                '{"id": c["id"], "partition_key": ['
+                + components
+                + "]} AS _cosmos_identity"
+            )
+            aliases["_cosmos_identity"] = "cosmos_identity"
+
         select = f"SELECT TOP {limit_param} " + ", ".join(cols) + f" FROM {_ALIAS}"
         return select, aliases
 

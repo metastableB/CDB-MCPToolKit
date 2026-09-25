@@ -157,3 +157,50 @@ def test_rows_to_items_metadata_only_md_prefixed() -> None:
 def test_rows_to_items_missing_item_id_raises(row) -> None:
     with pytest.raises(ValueError, match="item_id"):
         rows_to_items([row], strategy="full_text")
+
+
+def test_identity_projection_preserves_logical_id_and_metadata():
+    from cosmos_agentic_retriever.query_engine import CorpusSchema, CosmosQueryCompiler
+
+    schema = CorpusSchema(
+        item_id_path="/record/id",
+        text_paths=["/text"],
+        partition_key_paths=["/tenant", "/region"],
+        metadata_paths={"cosmos_identity": "/label"},
+    )
+    sql, aliases = CosmosQueryCompiler(schema).projection("@k")
+    assert (
+        '{"id": c["id"], "partition_key": [IIF(IS_DEFINED(c["tenant"]), c["tenant"], {}), IIF(IS_DEFINED(c["region"]), c["region"], {})]} AS _cosmos_identity'
+        in sql
+    )
+    row = {
+        "item_id": "logical",
+        "txt_0": "Text",
+        "md_0": "label",
+        "_cosmos_identity": {"id": "physical", "partition_key": [0, {}]},
+    }
+    item = rows_to_items([row], strategy="full_text", projected_aliases=aliases)[0]
+    assert item.item_id == "logical"
+    assert item.cosmos_identity.id == "physical"
+    assert item.cosmos_identity.partition_key == (0, {})
+    assert item.metadata == {"cosmos_identity": "label"}
+    assert item.text_fields == {"/text": "Text"}
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        None,
+        {},
+        {"id": "x"},
+        {"id": "x", "partition_key": []},
+        {"id": None, "partition_key": [0]},
+    ],
+)
+def test_incomplete_projected_identity_is_not_silently_accepted(identity):
+    with pytest.raises(ValueError):
+        rows_to_items(
+            [{"item_id": "logical", "_cosmos_identity": identity}],
+            strategy="full_text",
+            projected_aliases={"_cosmos_identity": "cosmos_identity"},
+        )

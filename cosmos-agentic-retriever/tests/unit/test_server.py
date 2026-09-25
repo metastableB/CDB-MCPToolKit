@@ -1,8 +1,10 @@
 """Offline HTTP contract tests adapted from PR #150's server tests."""
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Lock, get_ident
 from unittest.mock import Mock
+from urllib.parse import unquote
 
 import pytest
 from azure.cosmos import ContainerProxy
@@ -27,7 +29,11 @@ def _client(*, paths=None, text_fields=None, schema=None):
     retriever = CorpusRetriever(
         container=container,
         schema=schema
-        or CorpusSchema(item_id_path="/id", text_paths=paths or ["/text"]),
+        or CorpusSchema(
+            item_id_path="/id",
+            partition_key_paths=["/tenant"],
+            text_paths=paths or ["/text"],
+        ),
         executor=CosmosExecutor(config=QueryEngineConfig()),
     )
     return TestClient(
@@ -51,7 +57,13 @@ def _settings(**options):
             "account_uri": "https://example.documents.azure.com",
             "cosmos_database": "D",
             "cosmos_containers": {
-                "C": {"cosmos_schema": {"item_id_path": "/id", "text_paths": ["/text"]}}
+                "C": {
+                    "cosmos_schema": {
+                        "item_id_path": "/id",
+                        "partition_key_paths": ["/tenant"],
+                        "text_paths": ["/text"],
+                    }
+                }
             },
             **options,
         }
@@ -210,7 +222,11 @@ def test_injected_schema_mismatch_is_rejected_before_startup(monkeypatch):
     monkeypatch.setattr(server, "CosmosClient", constructor)
     retriever = CorpusRetriever(
         container=Mock(spec=ContainerProxy),
-        schema=CorpusSchema(item_id_path="/id", text_paths=["/different"]),
+        schema=CorpusSchema(
+            item_id_path="/id",
+            partition_key_paths=["/tenant"],
+            text_paths=["/different"],
+        ),
         executor=CosmosExecutor(config=QueryEngineConfig()),
     )
     with pytest.raises(ValueError, match="schema and partition policy must match"):
@@ -294,6 +310,7 @@ def test_search_request_max_documents_out_of_range(value) -> None:
 def test_search_happy_path_returns_result_dict() -> None:
     schema = CorpusSchema(
         item_id_path="/id",
+        partition_key_paths=["/tenant"],
         text_paths=["/text"],
         document_id_path="/docid",
         chunk_id_path="/chunk",
@@ -314,8 +331,13 @@ def test_search_happy_path_returns_result_dict() -> None:
                 "title": "Title",
                 "source": "Source",
                 "md_0": 2024,
+                "_cosmos_identity": {"id": "b", "partition_key": [0]},
             },
-            {"item_id": "a", "txt_0": "Second"},
+            {
+                "item_id": "a",
+                "txt_0": "Second",
+                "_cosmos_identity": {"id": "a", "partition_key": [0]},
+            },
         ]
     )
     with client:
@@ -335,7 +357,8 @@ def test_search_happy_path_returns_result_dict() -> None:
     assert documents[0] == {
         "database": "D",
         "container": "C",
-        "retrieval_id": "D/C:b",
+        "retrieval_id": "D/C:%5B%5B0%5D%2C%22b%22%5D",
+        "cosmos_identity": {"id": "b", "partition_key": [0]},
         "item_id": "b",
         "document_id": "doc-1",
         "chunk_id": "chunk-1",
@@ -353,7 +376,8 @@ def test_search_happy_path_returns_result_dict() -> None:
     container.query_items.assert_called_once_with(
         query='SELECT TOP @k0 c["id"] AS item_id, c["docid"] AS document_id, '
         'c["chunk"] AS chunk_id, c["position"] AS chunk_order, c["title"] AS title, '
-        'c["source"] AS source, c["text"] AS txt_0, c["year"] AS md_0 FROM c '
+        'c["source"] AS source, c["text"] AS txt_0, c["year"] AS md_0, '
+        '{"id": c["id"], "partition_key": [IIF(IS_DEFINED(c["tenant"]), c["tenant"], {})]} AS _cosmos_identity FROM c '
         'ORDER BY RANK FullTextScore(c["text"], "battery")',
         parameters=[{"name": "@k0", "value": 5}],
         enable_cross_partition_query=True,
@@ -458,6 +482,7 @@ def test_search_engine_exception_returns_500(failure) -> None:
     client, container = _client(
         schema=CorpusSchema(
             item_id_path="/id",
+            partition_key_paths=["/tenant"],
             text_paths=["/text"],
             metadata_paths={"value": "/value"},
         )
@@ -474,7 +499,11 @@ def test_search_engine_exception_returns_500(failure) -> None:
     else:
         container.query_items.return_value = iter(
             [
-                {"item_id": None if failure == "mapping" else "a", "md_0": object()},
+                {
+                    "item_id": None if failure == "mapping" else "a",
+                    "md_0": object(),
+                    "_cosmos_identity": {"id": "a", "partition_key": [0]},
+                },
             ]
         )
     with client:
@@ -513,9 +542,19 @@ def test_configured_text_fields_are_forwarded() -> None:
 
 def _multi_app(monkeypatch, *, capacity=2, partition_key=0):
     configs = {
-        "A": {"cosmos_schema": {"item_id_path": "/id", "text_paths": ["/text"]}},
+        "A": {
+            "cosmos_schema": {
+                "item_id_path": "/id",
+                "partition_key_paths": ["/tenant"],
+                "text_paths": ["/text"],
+            }
+        },
         "B": {
-            "cosmos_schema": {"item_id_path": "/key", "text_paths": ["/content/body"]},
+            "cosmos_schema": {
+                "item_id_path": "/key",
+                "partition_key_paths": ["/tenant"],
+                "text_paths": ["/content/body"],
+            },
             "partition_key": partition_key,
             "partition_policy": {"allow_cross_partition_search": False},
         },
@@ -525,8 +564,22 @@ def _multi_app(monkeypatch, *, capacity=2, partition_key=0):
     for name, container in containers.items():
         container.query_items.side_effect = lambda name=name, **kwargs: iter(
             [
-                {"item_id": "same", "txt_0": f"{name} first"},
-                {"item_id": "next", "txt_0": f"{name} next"},
+                {
+                    "item_id": "same",
+                    "txt_0": f"{name} first",
+                    "_cosmos_identity": {
+                        "id": "same",
+                        "partition_key": [0 if name == "A" else partition_key],
+                    },
+                },
+                {
+                    "item_id": "next",
+                    "txt_0": f"{name} next",
+                    "_cosmos_identity": {
+                        "id": "next",
+                        "partition_key": [0 if name == "A" else partition_key],
+                    },
+                },
             ]
         )
     client.get_database_client.return_value.get_container_client.side_effect = (
@@ -695,11 +748,21 @@ def test_multi_container_scope_schema_partition_and_results(
     assert body["searched"] == [{"database": "D", "container": name} for name in names]
     assert body["partial"] is False and body["errors"] == []
     expected = (
-        ["D/A:same", "D/B:same", "D/A:next"]
+        [("A", "same"), ("B", "same"), ("A", "next")]
         if selected is None
-        else [f"D/{selected}:same", f"D/{selected}:next"]
+        else [(selected, "same"), (selected, "next")]
     )
-    assert [item["retrieval_id"] for item in body["documents"]] == expected
+    assert [
+        (item["container"], item["item_id"]) for item in body["documents"]
+    ] == expected
+    assert len({item["retrieval_id"] for item in body["documents"]}) == len(expected)
+    for item in body["documents"]:
+        prefix, encoded = item["retrieval_id"].split(":")
+        assert prefix == f"D/{item['container']}"
+        assert json.loads(unquote(encoded)) == [
+            [0 if item["container"] == "A" else partition_key],
+            item["item_id"],
+        ]
     assert [item["rank"] for item in body["documents"]] == list(range(len(expected)))
     for name, container in containers.items():
         if name not in names:
@@ -783,7 +846,11 @@ def test_concurrent_http_requests_share_query_budget(monkeypatch, capacity):
                 reached_capacity.set()
         try:
             assert release.wait(5), "query was not released"
-            yield {"item_id": "same", "txt_0": "result"}
+            yield {
+                "item_id": "same",
+                "txt_0": "result",
+                "_cosmos_identity": {"id": "same", "partition_key": [0]},
+            }
         finally:
             with lock:
                 active -= 1
@@ -802,3 +869,62 @@ def test_concurrent_http_requests_share_query_budget(monkeypatch, capacity):
             release.set()
         assert all(future.result(timeout=5).status_code == 200 for future in futures)
     assert calls == 4 and active == 0 and maximum == capacity
+
+
+def test_cross_partition_identity_survives_http_pipeline():
+    schema = CorpusSchema(
+        item_id_path="/record/id",
+        partition_key_paths=["/tenant"],
+        text_paths=["/text"],
+        metadata_paths={"tenant": "/tenant"},
+    )
+    client, container = _client(schema=schema)
+    container.query_items.side_effect = lambda **kwargs: iter(
+        [
+            {
+                "item_id": "logical",
+                "txt_0": text,
+                "md_0": tenant,
+                "_cosmos_identity": {"id": physical, "partition_key": [tenant]},
+            }
+            for physical, tenant, text in [
+                ("same", "A", "first"),
+                ("same", "B", "second"),
+                ("other", "A", "third"),
+                ("same", "A", "first"),
+            ]
+        ]
+    )
+    with client:
+        all_results = client.post(
+            "/search", json={"query": "battery", "maxDocuments": 5}
+        ).json()
+        one_target = client.post(
+            "/search", json={"query": "battery", "container": "C", "maxDocuments": 5}
+        ).json()
+    assert all_results["errors"] == [] and all_results["partial"] is False
+    assert all_results["documents"] == one_target["documents"]
+    items = all_results["documents"]
+    assert len(items) == 3 and {item["text"] for item in items} == {
+        "first",
+        "second",
+        "third",
+    }
+    assert all(item["item_id"] == "logical" for item in items)
+    assert len({item["retrieval_id"] for item in items}) == 3
+    assert [item["rank"] for item in items] == [0, 1, 2]
+    sql = container.query_items.call_args.kwargs["query"]
+    assert 'c["record"]["id"] AS item_id' in sql
+    assert (
+        '{"id": c["id"], "partition_key": [IIF(IS_DEFINED(c["tenant"]), c["tenant"], {})]}'
+        in sql
+    )
+
+
+def test_missing_physical_identity_from_backend_is_an_error():
+    client, container = _client()
+    container.query_items.return_value = iter([{"item_id": "logical", "txt_0": "text"}])
+    with client:
+        response = client.post("/search", json={"query": "battery"})
+    assert response.status_code == 500
+    assert response.json()["documents"] == []

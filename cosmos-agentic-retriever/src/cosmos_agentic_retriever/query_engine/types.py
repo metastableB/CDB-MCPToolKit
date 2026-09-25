@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import math
 from typing import Annotated, Any, Literal
 
 # TODO: Is pydantic justified here? Isn't dataclass cleaner?
@@ -123,10 +125,55 @@ class SearchRequest(BaseModel):
     text_fields: list[str] | None = None
 
 
+class CosmosItemIdentity(BaseModel):
+    """A physical Cosmos item: its id and ordered partition-key components.
+
+    An empty object represents an undefined component, distinct from JSON null.
+    Numeric keys use Cosmos's double precision semantics, so 1 and 1.0 agree.
+    This identity does not depend on the caller's logical item ID or result rank.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(strict=True, min_length=1)
+    partition_key: tuple[Any, ...] = Field(min_length=1, max_length=3)
+
+    @field_validator("partition_key")
+    @classmethod
+    def _validate_components(cls, values: tuple[Any, ...]) -> tuple[Any, ...]:
+        normalized = []
+        for value in values:
+            if value is None or type(value) in (str, bool):
+                normalized.append(value)
+            elif type(value) in (int, float):
+                try:
+                    number = float(value)
+                except OverflowError as error:
+                    raise ValueError("partition key must be a finite number") from error
+                if not math.isfinite(number):
+                    raise ValueError("partition key must be a finite number")
+                normalized.append(int(number) if number.is_integer() else number)
+            elif isinstance(value, dict) and not value:
+                normalized.append({})
+            else:
+                raise ValueError("invalid Cosmos partition-key component")
+        return tuple(normalized)
+
+    def key(self) -> str:
+        """Encode typed components without delimiter collisions."""
+        return json.dumps(
+            [self.partition_key, self.id],
+            ensure_ascii=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+
+
 class RetrievedItem(BaseModel):
     """A ranked item with text_fields keyed by full paths, such as /article/text."""
 
     item_id: str
+    cosmos_identity: CosmosItemIdentity | None = None
     document_id: str | None = None
     chunk_id: str | None = None
     chunk_order: int | None = None

@@ -24,7 +24,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from cosmos_agentic_retriever.query_engine.types import RetrievedItem
+from cosmos_agentic_retriever.query_engine.types import (
+    CosmosItemIdentity,
+    RetrievedItem,
+)
 
 
 def row_text_fields(row: dict[str, Any], aliases: dict[str, str]) -> dict[str, str]:
@@ -82,12 +85,20 @@ def rows_to_items(
     document_id and chunk_id stay None. Keep chunk_order only if it is an integer,
     excluding booleans. Rank is the row's position plus start_rank (zero by default),
     not a relevance score calculated here.
+
+    When partition paths were configured, _cosmos_identity must contain the
+    physical id and partition values. Keep them separate from logical item_id.
     """
     aliases = projected_aliases or {}
     items: list[RetrievedItem] = []
     for index, row in enumerate(rows):
         if row.get("item_id") is None:
             raise ValueError("query result must contain a non-null item_id")
+        identity = (
+            CosmosItemIdentity.model_validate(row.get("_cosmos_identity"))
+            if "_cosmos_identity" in aliases
+            else None
+        )
         metadata = {
             aliases[key]: value
             for key, value in row.items()
@@ -99,6 +110,7 @@ def rows_to_items(
         items.append(
             RetrievedItem(
                 item_id=str(row.get("item_id")),
+                cosmos_identity=identity,
                 document_id=(
                     str(row["document_id"])
                     if row.get("document_id") is not None
