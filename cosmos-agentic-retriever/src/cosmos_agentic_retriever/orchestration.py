@@ -1,9 +1,20 @@
-"""Search configured containers concurrently and combine their ranked results.
+"""Search many configured containers at once and merge their ranked results.
 
-Adapted from the original cross-collection retriever. Cosmos ranks within each
-container; reciprocal-rank combination interleaves those lists, not their BM25
-scores. Ties follow configured container order. Each hit keeps its original item
-ID and adds a retrieval_id for its database, container, partition key and physical ID.
+This is the coordination layer between the HTTP server and the per-container
+query engine. MultiContainerRetriever runs each selected container's search
+concurrently and collects one ranked list per container, recording per-target
+errors so that one container's failure does not fail the whole request.
+
+fuse_rrf merges those per-container lists with reciprocal-rank fusion: it
+interleaves by each item's rank within its own container (A1, B1, A2, B2, ...)
+up to the requested limit, with ties following configured container order. This
+is a rank-based merge, not a comparison of raw relevance scores across
+containers, which are not comparable. Items are keyed by physical Cosmos identity
+(partition-key values plus id), so two items that share a logical id in different
+partitions stay distinct while an exact repeat is de-duplicated.
+
+Each returned item keeps its original item_id and gains its database, container,
+and a retrieval_id encoding that database, container, and physical identity.
 """
 
 from collections.abc import Mapping, Sequence

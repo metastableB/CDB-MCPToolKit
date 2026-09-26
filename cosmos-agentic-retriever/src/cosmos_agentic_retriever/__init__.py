@@ -1,10 +1,10 @@
 """Multi-turn agentic retrieval over Azure Cosmos DB for NoSQL.
 
-This module implements the `cosmos-retriever` service, which implements a multi-turn
+This module implements the `cosmos-retriever` service, providing multi-turn
 agentic retrieval over a Cosmos DB for NoSQL database.
 
-Example direct usage: While the module is designed to be used through the cosmos DB
-MCP toolkit, we illustrate a direct usage pattern here for simplicity.
+Usage: While the module is designed to be used through the cosmos DB MCP
+toolkit, we illustrate the main components with a direct usage pattern here
 
 - Assumes the following two containers exists with their own id and text fields. 
 
@@ -19,10 +19,10 @@ text field and the reports container's content.body field.
 	import os
 	import uvicorn
 
-	from cosmos_agentic_retriever.config import RetrieverSettings
+	from cosmos_agentic_retriever.config import RetrieverConfig
 	from cosmos_agentic_retriever.server import create_app
 
-	settings = RetrieverSettings(
+	settings = RetrieverConfig(
 		account_uri=os.environ["ACCOUNT_URI"],
 		cosmos_database="example-db",
 		cosmos_credential="azure_cli",
@@ -52,5 +52,5 @@ From another terminal, search both containers with one request:
 Add "container":"articles" to the JSON body to search only articles. The response
 contains at most five items across both containers, not five from each. Each item
 identifies its database and container. If a container's search fails, the response
-includes that error. See SERVICE.md for filters and .NET MCP connection settings.
+includes that error. See the README to run the service and connect the MCP toolkit.
 """
