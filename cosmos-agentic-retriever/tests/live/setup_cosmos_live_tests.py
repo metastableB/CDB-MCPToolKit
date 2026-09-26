@@ -27,7 +27,7 @@ from azure.cosmos import CosmosClient
 from azure.cosmos.exceptions import CosmosResourceExistsError
 from azure.identity import AzureCliCredential, DefaultAzureCredential
 
-from cosmos_agentic_retriever.config import RetrieverSettings
+from cosmos_agentic_retriever.config import RetrieverConfig
 
 DEFAULT_DATABASE = "mcp-live-tests-v1"
 FIXTURE_VERSION = "mcp-search-v1"
@@ -118,7 +118,7 @@ def fixtures() -> tuple[ContainerFixture, ...]:
                 "item_id_path": "/id",
                 "partition_key_paths": ["/tenant"],
                 "text_paths": ["/text"],
-                "metadata_paths": {"year": "/year"},
+                "additional_return_paths": ["/year"],
             },
             ("/text",),
             ("/text",),
@@ -130,7 +130,7 @@ def fixtures() -> tuple[ContainerFixture, ...]:
                 "item_id_path": "/record/id",
                 "partition_key_paths": ["/tenant"],
                 "text_paths": ["/content/body"],
-                "metadata_paths": {"year": "/year"},
+                "additional_return_paths": ["/year"],
             },
             ("/content/body",),
             ("/content/body",),
@@ -225,7 +225,7 @@ def load_scifact(path: Path) -> RealCorpus:
                 "item_id_path": "/id",
                 "partition_key_paths": ["/tenant"],
                 "text_paths": ["/title", "/text"],
-                "metadata_paths": {"dataset_source": "/source"},
+                "additional_return_paths": ["/source"],
             },
             ("/title", "/text"),
             ("/title", "/text"),
@@ -237,22 +237,11 @@ def load_scifact(path: Path) -> RealCorpus:
 
 
 def select_data(
-    data: str, archive: Path | None
-) -> tuple[tuple[ContainerFixture, ...], RealCorpus | None]:
-    """Select synthetic, real, or combined containers for setup and tests."""
-    if data not in ("synthetic", "scifact", "both"):
-        raise ValueError("data must be synthetic, scifact, or both")
-    if data == "synthetic":
-        if archive is not None:
-            raise ValueError("select --data scifact or both when supplying an archive")
-        return fixtures(), None
-    if archive is None:
-        raise ValueError(
-            "SciFact data requires a local --scifact-archive / COSMOS_TEST_SCIFACT_ARCHIVE"
-        )
+    archive: Path,
+) -> tuple[tuple[ContainerFixture, ...], RealCorpus]:
+    """Return the synthetic fixtures plus the real SciFact corpus."""
     real = load_scifact(archive)
-    synthetic = fixtures() if data == "both" else ()
-    return (*synthetic, real.fixture), real
+    return (*fixtures(), real.fixture), real
 
 
 def validate_database_name(database: str) -> str:
@@ -338,10 +327,10 @@ def service_settings(
     credential: str,
     *,
     selected: tuple[ContainerFixture, ...] | None = None,
-) -> RetrieverSettings:
+) -> RetrieverConfig:
     """Build service settings for the selected fixture containers."""
     selected = fixtures() if selected is None else selected
-    return RetrieverSettings(
+    return RetrieverConfig(
         account_uri=endpoint,
         cosmos_database=validate_database_name(database),
         cosmos_key=None,
@@ -447,22 +436,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resource-group", required=True)
     parser.add_argument("--account", required=True)
     parser.add_argument("--database", default=DEFAULT_DATABASE)
-    parser.add_argument(
-        "--data", choices=["synthetic", "scifact", "both"], default="synthetic"
-    )
-    parser.add_argument("--scifact-archive", type=Path)
+    parser.add_argument("--scifact-archive", required=True, type=Path)
     parser.add_argument(
         "--credential", choices=["azure_cli", "default"], default="azure_cli"
     )
     args = parser.parse_args(argv)
     try:
         validate_database_name(args.database)
-        selected, real = select_data(args.data, args.scifact_archive)
+        selected, real = select_data(args.scifact_archive)
         print(f"Account: {args.account}; fixture database: {args.database}")
-        print(f"Data: {args.data}; containers: {', '.join(f.name for f in selected)}")
+        print(f"Containers: {', '.join(f.name for f in selected)}")
         print(f"Expected records: {sum(len(f.items) for f in selected)}")
-        if real is not None:
-            print(f"SciFact selection SHA-256: {real.selection_sha256}")
+        print(f"SciFact selection SHA-256: {real.selection_sha256}")
         endpoint = prepare_resources(args, selected)
         with ExitStack() as stack:
             credential = (
@@ -482,10 +467,8 @@ def main(argv: list[str] | None = None) -> int:
             f"COSMOS_TEST_ENDPOINT={endpoint}\n"
             f"COSMOS_TEST_DATABASE={args.database}\n"
             f"COSMOS_TEST_CREDENTIAL={args.credential}\n"
-            f"COSMOS_TEST_DATA={args.data}"
+            f"COSMOS_TEST_SCIFACT_ARCHIVE={args.scifact_archive.resolve()}"
         )
-        if args.scifact_archive is not None:
-            print(f"COSMOS_TEST_SCIFACT_ARCHIVE={args.scifact_archive.resolve()}")
         return 0
     except (ValueError, AzureError, subprocess.SubprocessError, OSError) as error:
         detail = (

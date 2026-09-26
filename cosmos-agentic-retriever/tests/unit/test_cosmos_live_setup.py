@@ -5,7 +5,6 @@ import io
 import json
 import zipfile
 from copy import deepcopy
-from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -13,7 +12,6 @@ import setup_cosmos_live_tests as setup
 from setup_cosmos_live_tests import (
     fixtures,
     load_scifact,
-    select_data,
     validate_container,
     validate_database_name,
     validate_items,
@@ -71,22 +69,12 @@ def test_bad_archive_aborts_before_any_azure_call(scifact_archive, monkeypatch):
                 "--subscription", "sub",
                 "--resource-group", "rg",
                 "--account", "account",
-                "--data", "both",
                 "--scifact-archive", str(scifact_archive),
             ]
         )
         == 1
     )
     execute.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "data,archive",
-    [("unknown", None), ("both", None), ("synthetic", Path("unused.zip"))],
-)
-def test_invalid_data_selection_is_rejected(data, archive):
-    with pytest.raises(ValueError):
-        select_data(data, archive)
 
 
 @pytest.mark.parametrize("database", ["prod-db", "mcp-live-tests-bad_name", "other"])

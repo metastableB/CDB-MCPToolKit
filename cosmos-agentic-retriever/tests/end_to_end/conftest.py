@@ -24,10 +24,9 @@ from cosmos_agentic_retriever.server import create_app
 @pytest.fixture(scope="session")
 def live_selection():
     archive = os.environ.get("COSMOS_TEST_SCIFACT_ARCHIVE")
-    return select_data(
-        os.environ.get("COSMOS_TEST_DATA", "synthetic"),
-        Path(archive) if archive else None,
-    )
+    if not archive:
+        pytest.fail("COSMOS_TEST_SCIFACT_ARCHIVE is required when RUN_COSMOS_LIVE=1")
+    return select_data(Path(archive))
 
 
 @pytest.fixture(scope="session")
@@ -86,7 +85,4 @@ def synthetic_http(synthetic_settings):
 
 @pytest.fixture(scope="session")
 def real_corpus(live_selection):
-    real = live_selection[1]
-    if real is None:
-        pytest.skip("select scifact or both to run real-corpus tests")
-    return real
+    return live_selection[1]
