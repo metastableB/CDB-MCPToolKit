@@ -7,3 +7,6 @@ __pycache__/
 .ruff_cache/
 .live-data/
 artifacts/
+/config*.yaml
+/config*.yml
+!/config.example.yaml
