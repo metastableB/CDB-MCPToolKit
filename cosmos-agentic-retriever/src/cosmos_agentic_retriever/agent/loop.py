@@ -1,19 +1,13 @@
-"""The bounded chat loop that drives a model and its tools to an answer.
+"""Run model requests and tool calls until the model answers or the turn limit is reached.
 
-`run_agent_search` runs one search episode. Each turn it calls the model; if the
-model asks for a tool, the loop runs the tool and feeds the result back; if the
-model answers instead, the loop stops. It always stops after `max_turns` turns,
-so it cannot run forever regardless of what the model does.
+run_agent_search calls the supplied complete function for the model's next
+reply. The service passes ChatClient.complete from llm.py. That client
+makes the API request and returns the reply and requested tool calls; it does
+not execute them.
 
-The loop does not know about any model provider. It calls the model through a
-`complete` callable and appends whatever assistant message that call returns, so
-it never has to parse the model's wire format. `llm.ChatClient` provides
-`complete` for an OpenAI-compatible endpoint; a test can pass a stand-in.
-
-A `Tool` is a plain capability: a name, a description, a JSON-Schema parameter
-spec, and a handler that maps parsed arguments to an observation string. How the
-model expresses a call is the model client's concern, not the tool's, so a tool
-describes only what it does.
+This loop executes the tool calls, adds their results to the conversation, and
+asks the model again. It stops when a reply has no tool calls, a model call fails,
+or max_turns model calls have been made.
 """
 
 from __future__ import annotations
@@ -102,14 +96,14 @@ def run_agent_search(
     system_prompt: str,
     max_turns: int,
 ) -> AgentResult:
-    """Run the bounded search loop for one question and return its result.
+    """Run the search loop for one question and return its result.
 
     Args:
         question: the caller's request; the model decides what to search for.
-        complete: calls the model with the running transcript and the tools, and
-            returns an `LlmTurn`. `ChatClient.complete` is the real one.
-        tools: the capabilities offered to the model (one, `search_corpus`, for
-            now). Names must be unique.
+        complete: gets the model's next reply as an LlmTurn. The service passes
+            ChatClient.complete; tests can supply a scripted callable.
+        tools: the capabilities offered to the model (the `full_text_search`
+            tool). Names must be unique.
         system_prompt: the instruction that opens the transcript.
         max_turns: the hard cap on model calls; the loop always stops by here.
 

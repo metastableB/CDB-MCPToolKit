@@ -39,7 +39,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from cosmos_agentic_retriever.agent import (
     ChatClient,
-    make_search_corpus_tool,
+    make_full_text_search_tool,
     run_agent_search,
 )
 from cosmos_agentic_retriever.agent.prompts import SYSTEM_PROMPT
@@ -349,7 +349,7 @@ def create_app(
             runs.append(result.items)
             return result
 
-        tool = make_search_corpus_tool(
+        tool = make_full_text_search_tool(
             search,
             default_max_documents=resolved.agent_max_documents,
             max_documents_cap=resolved.agent_max_documents,

@@ -94,14 +94,14 @@ def _search_then_answer() -> list[LlmTurn]:
                         "id": "c1",
                         "type": "function",
                         "function": {
-                            "name": "search_corpus",
+                            "name": "full_text_search",
                             "arguments": '{"query": "hi"}',
                         },
                     }
                 ],
             },
             content="",
-            tool_calls=[ToolCall("c1", "search_corpus", {"query": "hi"})],
+            tool_calls=[ToolCall("c1", "full_text_search", {"query": "hi"})],
         ),
         LlmTurn(message={"role": "assistant", "content": "the answer"}, content="the answer"),
     ]

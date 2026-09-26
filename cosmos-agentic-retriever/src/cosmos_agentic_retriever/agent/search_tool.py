@@ -1,6 +1,6 @@
-"""The one capability the agent has: search the configured containers.
+"""The `full_text_search` tool: search the configured containers.
 
-`make_search_corpus_tool` builds the `search_corpus` tool from a `search`
+`make_full_text_search_tool` builds the `full_text_search` tool from a `search`
 callable that runs one query against the in-process multi-container retriever.
 The tool validates the model's arguments, runs the search, and formats the ranked
 items as text the model reads and refines against. Each item is shown with its
@@ -34,13 +34,13 @@ def _format_results(result: MultiSearchResult) -> str:
     return "\n\n".join(blocks)
 
 
-def make_search_corpus_tool(
+def make_full_text_search_tool(
     search: SearchFn,
     *,
     default_max_documents: int = 10,
     max_documents_cap: int = 50,
 ) -> Tool:
-    """Build the `search_corpus` tool over a `search` callable.
+    """Build the `full_text_search` tool over a `search` callable.
 
     Args:
         search: runs one query and returns a `MultiSearchResult`; the handler
@@ -82,7 +82,7 @@ def make_search_corpus_tool(
         return _format_results(result)
 
     return Tool(
-        name="search_corpus",
+        name="full_text_search",
         description=_DESCRIPTION,
         parameters=parameters,
         handler=handler,

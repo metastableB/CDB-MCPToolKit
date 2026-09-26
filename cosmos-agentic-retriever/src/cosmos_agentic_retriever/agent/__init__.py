@@ -1,14 +1,10 @@
-"""A bounded, single-tool search agent over the configured containers.
+"""A search agent that answers questions from the configured cosmosDB
+containers.
 
 The agent runs a short chat loop: it asks a language model what to search for,
 runs the search, shows the model the results, and repeats until the model answers
-or a turn cap is hit. It exposes one capability, ``search_corpus``, backed by the
+or a turn cap is hit. It searches with the ``full_text_search`` tool, backed by the
 in-process multi-container retriever.
-
-The loop (`loop.py`) does not depend on any model provider; the model call
-(`llm.py`) is the only piece that knows the OpenAI chat wire format. Splitting
-them this way means switching to a different model provider changes one file, not
-the loop.
 """
 
 from cosmos_agentic_retriever.agent.llm import ChatClient
@@ -19,7 +15,7 @@ from cosmos_agentic_retriever.agent.loop import (
     ToolCall,
     run_agent_search,
 )
-from cosmos_agentic_retriever.agent.search_tool import make_search_corpus_tool
+from cosmos_agentic_retriever.agent.search_tool import make_full_text_search_tool
 
 __all__ = [
     "AgentResult",
@@ -27,6 +23,6 @@ __all__ = [
     "LlmTurn",
     "Tool",
     "ToolCall",
-    "make_search_corpus_tool",
+    "make_full_text_search_tool",
     "run_agent_search",
 ]

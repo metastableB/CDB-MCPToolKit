@@ -54,7 +54,7 @@ def _echo_tool(record: list[dict]) -> Tool:
         return f"searched {arguments.get('query')!r}"
 
     return Tool(
-        name="search_corpus",
+        name="full_text_search",
         description="search",
         parameters={"type": "object", "properties": {}},
         handler=handler,
@@ -78,7 +78,7 @@ def test_answers_without_searching_stops():
 def test_searches_then_answers():
     calls: list[dict] = []
     model = _ScriptedModel(
-        [_call("c1", "search_corpus", {"query": "cats"}), _answer("final")]
+        [_call("c1", "full_text_search", {"query": "cats"}), _answer("final")]
     )
     result = run_agent_search(
         "q",
@@ -96,7 +96,7 @@ def test_searches_then_answers():
 
 
 def test_stops_at_max_turns_when_model_keeps_calling():
-    model = _ScriptedModel([_call(f"c{i}", "search_corpus", {"query": "x"}) for i in range(5)])
+    model = _ScriptedModel([_call(f"c{i}", "full_text_search", {"query": "x"}) for i in range(5)])
     result = run_agent_search(
         "q",
         complete=model,
@@ -130,13 +130,13 @@ def test_tool_exception_becomes_error_observation():
         raise RuntimeError("kaboom")
 
     tool = Tool(
-        name="search_corpus",
+        name="full_text_search",
         description="search",
         parameters={"type": "object", "properties": {}},
         handler=boom,
     )
     model = _ScriptedModel(
-        [_call("c1", "search_corpus", {"query": "x"}), _answer("recovered")]
+        [_call("c1", "full_text_search", {"query": "x"}), _answer("recovered")]
     )
     result = run_agent_search(
         "q", complete=model, tools=[tool], system_prompt="sys", max_turns=5
