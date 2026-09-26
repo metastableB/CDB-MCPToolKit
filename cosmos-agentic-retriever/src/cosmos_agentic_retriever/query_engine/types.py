@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Final, Literal
 
 # TODO: Is pydantic justified here? Isn't dataclass cleaner?
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -97,6 +97,22 @@ FilterExpression = Annotated[
 ]
 
 
+class SQLColumnAliases:
+    """SQL column aliases shared by the compiler (encode) and row decoder (decode).
+
+    The compiler projects columns under these names; row_decoding reads the same
+    names back into RetrievedItem, so both sides stay in sync through this type.
+    """
+
+    ITEM_ID: Final = "item_id"
+    PARENT_DOCUMENT_ID: Final = "parent_document_id"
+    CHUNK_ID: Final = "chunk_id"
+    CHUNK_ORDER: Final = "chunk_order"
+    COSMOS_IDENTITY: Final = "_cosmos_identity"
+    TEXT_PREFIX: Final = "txt_"
+    ADDITIONAL_PREFIX: Final = "add_"
+
+
 # Compiler output: SQL and the values/settings needed to execute it.
 class CompiledCosmosQuery(BaseModel):
     sql: str
@@ -126,11 +142,14 @@ class SearchRequest(BaseModel):
 
 
 class CosmosItemIdentity(BaseModel):
-    """A physical Cosmos item: its id and ordered partition-key components.
+    """A physical Cosmos item and a unique id for that item. 
 
-    An empty object represents an undefined component, distinct from JSON null.
-    Numeric keys use Cosmos's double precision semantics, so 1 and 1.0 agree.
-    This identity does not depend on the caller's logical item ID or result rank.
+    In Cosmos DB NoSQL, a document's real unique key is (partition-key value(s),
+    id), not id alone. Cosmos's documented addressing identity uses (id +
+    partition-key value) for unique addressing. However, partition-key values
+    are arbitrary JSON (strings, numbers, bools, null, hierarchical up to 3
+    levels, or undefined). To use those values as an equality key we normalize
+    them through the _validate_components() private method. 
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -174,14 +193,12 @@ class RetrievedItem(BaseModel):
 
     item_id: str
     cosmos_identity: CosmosItemIdentity | None = None
-    document_id: str | None = None
+    parent_document_id: str | None = None
     chunk_id: str | None = None
     chunk_order: int | None = None
     text: str = ""
     text_fields: dict[str, str] = Field(default_factory=dict)
-    title: str | None = None
-    source: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    additional_fields: dict[str, Any] = Field(default_factory=dict)
     retrieval_strategy: str = ""
     retrieval_channels: list[str] = Field(default_factory=list)
     rank: int = 0

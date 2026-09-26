@@ -29,7 +29,7 @@ def _items(prefix):
     ]
 
 
-def test_fuse_rrf_interleaves_and_tags_metadata():
+def test_fuse_rrf_interleaves_and_tags_additional_fields():
     first, second = ContainerTarget("D", "A"), ContainerTarget("D", "B")
     original = _items("a")
     result = fuse_rrf([(first, original), (second, _items("b"))], limit=3)
@@ -39,7 +39,7 @@ def test_fuse_rrf_interleaves_and_tags_metadata():
         ("D", "B", 1),
         ("D", "A", 2),
     ]
-    assert original[0].rank == 1 and original[0].metadata == {}
+    assert original[0].rank == 1 and original[0].additional_fields == {}
 
 
 def test_qualified_ids_are_distinct_and_delimiters_escaped():

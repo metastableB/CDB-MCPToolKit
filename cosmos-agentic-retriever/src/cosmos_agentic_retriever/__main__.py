@@ -1,7 +1,7 @@
-"""Start the HTTP service with python -m cosmos_agentic_retriever serve.
+"""Entrypoint for the Cosmos Agentic Retriever service.
 
-Connection and schema settings come from the environment. --host and --port
-override the bind address without changing the configured Cosmos target.
+Run with:
+    python -m cosmos_agentic_retriever serve
 """
 
 import argparse
@@ -11,7 +11,7 @@ import uvicorn
 from pydantic import ValidationError
 from pydantic_settings import SettingsError
 
-from cosmos_agentic_retriever.config import RetrieverSettings, get_settings
+from cosmos_agentic_retriever.config import RetrieverConfig, get_config
 from cosmos_agentic_retriever.query_engine.types import RetrievalError
 from cosmos_agentic_retriever.server import create_app
 
@@ -32,7 +32,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
-    settings = get_settings()
+    settings = get_config()
     overrides = {
         name: getattr(args, name)
         for name in ("host", "port")
@@ -40,9 +40,9 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     }
     if overrides:
         values = {
-            name: getattr(settings, name) for name in RetrieverSettings.model_fields
+            name: getattr(settings, name) for name in RetrieverConfig.model_fields
         }
-        settings = RetrieverSettings(**{**values, **overrides})
+        settings = RetrieverConfig(**{**values, **overrides})
     app = create_app(settings)
     uvicorn.run(
         app, host=settings.host, port=settings.port, log_level=settings.log_level

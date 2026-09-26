@@ -1,8 +1,18 @@
-"""Configure full-text search over an explicit set of containers in one database.
+"""Configure retrieval over an explicit set of containers in one database.
 
-COSMOS_CONTAINERS is a JSON object keyed by container name. Each entry declares
-its schema, selected text fields, and partition rules. All containers share the
-account credentials and query concurrency limit. Nothing is auto-discovered.
+`RetrieverConfig` is a pydantic-settings model: each field is read from the
+matching uppercased environment variable at startup (`ACCOUNT_URI`,
+`COSMOS_DATABASE`, `COSMOS_CONTAINERS`, ...), loaded by `get_config()`.
+
+`COSMOS_CONTAINERS` populates the `cosmos_containers` field: a JSON object keyed
+by container name, e.g. `{"articles": {...}, "reports": {...}}`. Each entry
+declares that container's schema, search scope, and partition rules. All
+containers share the account credentials and query concurrency limit.
+
+The current release searches with full text only, so each container declares the
+text fields to search. Additional search modes will be added later.
+
+TODO: Remove environment variable based config and port to YAML.
 """
 
 from typing import Any, Literal, Self
@@ -48,7 +58,7 @@ class ContainerConfig(BaseModel):
         return self
 
 
-class RetrieverSettings(BaseSettings):
+class RetrieverConfig(BaseSettings):
     """Startup settings. A Cosmos key takes precedence over the identity choice."""
 
     model_config = SettingsConfigDict(extra="forbid")
@@ -89,6 +99,6 @@ class RetrieverSettings(BaseSettings):
         return value
 
 
-def get_settings() -> RetrieverSettings:
+def get_config() -> RetrieverConfig:
     """Read the environment explicitly at application startup, not during imports."""
-    return RetrieverSettings()
+    return RetrieverConfig()

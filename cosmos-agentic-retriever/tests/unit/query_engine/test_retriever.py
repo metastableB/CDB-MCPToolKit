@@ -197,13 +197,13 @@ def test_search_request_to_rows() -> None:
     schema = CorpusSchema(
         item_id_path="/id",
         text_paths=["/content/body", "/headline"],
-        metadata_paths={"year": "/publication/year"},
+        additional_return_paths=["/publication/year"],
     )
     retriever, container = _search_path(schema)
     container.query_items.return_value = iter(
         [
-            {"item_id": "a", "txt_0": "A", "txt_1": "Title A", "md_0": 2024},
-            {"item_id": "b", "txt_0": "B", "txt_1": "Title B", "md_0": 2021},
+            {"item_id": "a", "txt_0": "A", "txt_1": "Title A", "add_0": 2024},
+            {"item_id": "b", "txt_0": "B", "txt_1": "Title B", "add_0": 2021},
         ]
     )
     request = SearchRequest(
@@ -221,7 +221,7 @@ def test_search_request_to_rows() -> None:
     results = retriever.search(request)
     container.query_items.assert_called_once_with(
         query='SELECT TOP @k0 c["id"] AS item_id, c["content"]["body"] AS txt_0, '
-        'c["headline"] AS txt_1, c["publication"]["year"] AS md_0 FROM c '
+        'c["headline"] AS txt_1, c["publication"]["year"] AS add_0 FROM c '
         'WHERE (c["publication"]["year"] >= @p1) AND c["id"] = @p2 '
         'AND NOT ARRAY_CONTAINS(@p3, c["id"]) '
         'ORDER BY RANK FullTextScore(c["content"]["body"], "battery", "recycling")',
@@ -236,7 +236,10 @@ def test_search_request_to_rows() -> None:
     assert [item.item_id for item in results] == ["a", "b"]
     assert [item.rank for item in results] == [0, 1]
     assert [item.text for item in results] == ["A", "B"]
-    assert [item.metadata for item in results] == [{"year": 2024}, {"year": 2021}]
+    assert [item.additional_fields for item in results] == [
+        {"/publication/year": 2024},
+        {"/publication/year": 2021},
+    ]
     assert results[0].text_fields == {"/content/body": "A", "/headline": "Title A"}
     assert all(
         item.retrieval_channels == ["full_text"]

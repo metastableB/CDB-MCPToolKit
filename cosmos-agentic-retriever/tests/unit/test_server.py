@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from cosmos_agentic_retriever import server
-from cosmos_agentic_retriever.config import RetrieverSettings
+from cosmos_agentic_retriever.config import RetrieverConfig
 from cosmos_agentic_retriever.orchestration import ContainerTarget
 from cosmos_agentic_retriever.query_engine import (
     CorpusSchema,
@@ -52,7 +52,7 @@ def _client(*, paths=None, text_fields=None, schema=None):
 
 
 def _settings(**options):
-    return RetrieverSettings(
+    return RetrieverConfig(
         **{
             "account_uri": "https://example.documents.azure.com",
             "cosmos_database": "D",
@@ -194,7 +194,7 @@ def test_injected_retriever_does_not_create_clients(monkeypatch):
     load = Mock(
         side_effect=AssertionError("explicit settings must not load the environment")
     )
-    monkeypatch.setattr(server, "get_settings", load)
+    monkeypatch.setattr(server, "get_config", load)
     external_client = Mock()
     container = external_client.get_database_client.return_value.get_container_client.return_value
     container.query_items.return_value = iter([])
@@ -234,10 +234,10 @@ def test_injected_schema_mismatch_is_rejected_before_startup(monkeypatch):
     constructor.assert_not_called()
 
 
-def test_create_app_falls_back_to_get_settings(monkeypatch):
+def test_create_app_falls_back_to_get_config(monkeypatch):
     settings = _settings()
     load = Mock(return_value=settings)
-    monkeypatch.setattr(server, "get_settings", load)
+    monkeypatch.setattr(server, "get_config", load)
     app = create_app()
     load.assert_called_once()
     assert app.state.retriever is None
@@ -312,12 +312,10 @@ def test_search_happy_path_returns_result_dict() -> None:
         item_id_path="/id",
         partition_key_paths=["/tenant"],
         text_paths=["/text"],
-        document_id_path="/docid",
+        parent_document_id_path="/docid",
         chunk_id_path="/chunk",
         chunk_order_path="/position",
-        title_path="/title",
-        source_path="/source",
-        metadata_paths={"year": "/year"},
+        additional_return_paths=["/year"],
     )
     client, container = _client(schema=schema)
     container.query_items.return_value = iter(
@@ -325,12 +323,10 @@ def test_search_happy_path_returns_result_dict() -> None:
             {
                 "item_id": "b",
                 "txt_0": "Battery recycling",
-                "document_id": "doc-1",
+                "parent_document_id": "doc-1",
                 "chunk_id": "chunk-1",
                 "chunk_order": 2,
-                "title": "Title",
-                "source": "Source",
-                "md_0": 2024,
+                "add_0": 2024,
                 "_cosmos_identity": {"id": "b", "partition_key": [0]},
             },
             {
@@ -360,23 +356,24 @@ def test_search_happy_path_returns_result_dict() -> None:
         "retrieval_id": "D/C:%5B%5B0%5D%2C%22b%22%5D",
         "cosmos_identity": {"id": "b", "partition_key": [0]},
         "item_id": "b",
-        "document_id": "doc-1",
+        "parent_document_id": "doc-1",
         "chunk_id": "chunk-1",
         "chunk_order": 2,
-        "title": "Title",
-        "source": "Source",
         "text": "Battery recycling",
         "text_fields": {"/text": "Battery recycling"},
-        "metadata": {"year": 2024},
+        "additional_fields": {"/year": 2024},
         "rank": 0,
         "retrieval_strategy": "full_text",
         "retrieval_channels": ["full_text"],
     }
-    assert documents[1]["document_id"] is None and documents[1]["metadata"] == {}
+    assert (
+        documents[1]["parent_document_id"] is None
+        and documents[1]["additional_fields"] == {}
+    )
     container.query_items.assert_called_once_with(
-        query='SELECT TOP @k0 c["id"] AS item_id, c["docid"] AS document_id, '
-        'c["chunk"] AS chunk_id, c["position"] AS chunk_order, c["title"] AS title, '
-        'c["source"] AS source, c["text"] AS txt_0, c["year"] AS md_0, '
+        query='SELECT TOP @k0 c["id"] AS item_id, c["docid"] AS parent_document_id, '
+        'c["chunk"] AS chunk_id, c["position"] AS chunk_order, '
+        'c["text"] AS txt_0, c["year"] AS add_0, '
         '{"id": c["id"], "partition_key": [IIF(IS_DEFINED(c["tenant"]), c["tenant"], {})]} AS _cosmos_identity FROM c '
         'ORDER BY RANK FullTextScore(c["text"], "battery")',
         parameters=[{"name": "@k0", "value": 5}],
@@ -484,7 +481,7 @@ def test_search_engine_exception_returns_500(failure) -> None:
             item_id_path="/id",
             partition_key_paths=["/tenant"],
             text_paths=["/text"],
-            metadata_paths={"value": "/value"},
+            additional_return_paths=["/value"],
         )
     )
     if failure == "query":
@@ -501,7 +498,7 @@ def test_search_engine_exception_returns_500(failure) -> None:
             [
                 {
                     "item_id": None if failure == "mapping" else "a",
-                    "md_0": object(),
+                    "add_0": object(),
                     "_cosmos_identity": {"id": "a", "partition_key": [0]},
                 },
             ]
@@ -634,7 +631,9 @@ def test_container_filters_use_each_targets_stored_paths(monkeypatch, selected):
             if name == "B":
                 assert arguments["partition_key"] == 0
             container.query_items.reset_mock()
-        assert all(item["metadata"] == {} for item in response.json()["documents"])
+        assert all(
+            item["additional_fields"] == {} for item in response.json()["documents"]
+        )
         assert (
             http.post("/search", json={"query": "battery", **options}).status_code
             == 200
@@ -876,7 +875,7 @@ def test_cross_partition_identity_survives_http_pipeline():
         item_id_path="/record/id",
         partition_key_paths=["/tenant"],
         text_paths=["/text"],
-        metadata_paths={"tenant": "/tenant"},
+        additional_return_paths=["/tenant"],
     )
     client, container = _client(schema=schema)
     container.query_items.side_effect = lambda **kwargs: iter(
@@ -884,7 +883,7 @@ def test_cross_partition_identity_survives_http_pipeline():
             {
                 "item_id": "logical",
                 "txt_0": text,
-                "md_0": tenant,
+                "add_0": tenant,
                 "_cosmos_identity": {"id": physical, "partition_key": [tenant]},
             }
             for physical, tenant, text in [

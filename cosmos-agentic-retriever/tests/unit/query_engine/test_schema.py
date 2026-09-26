@@ -26,12 +26,12 @@ def test_minimal_schema_and_independent_defaults() -> None:
     first = CorpusSchema(item_id_path="/id")
     second = CorpusSchema(item_id_path="/id")
     assert _compile(first).sql == 'SELECT TOP @k0 c["id"] AS item_id FROM c'
-    assert first.document_id_path is None
-    assert first.text_field_map() == {}
+    assert first.parent_document_id_path is None
+    assert first.text_paths_by_string() == {}
     first.text_paths.append(CosmosPath.parse("/text"))
-    first.metadata_paths["year"] = CosmosPath.parse("/year")
+    first.additional_return_paths.append(CosmosPath.parse("/year"))
     assert second.text_paths == []
-    assert second.metadata_paths == {}
+    assert second.additional_return_paths == []
     first.partition_key_paths.append(CosmosPath.parse("/tenant"))
     assert second.partition_key_paths == []
 
@@ -51,15 +51,18 @@ def test_partition_identity_paths_revalidated_before_projection():
         _compile(schema)
 
 
+def test_additional_return_paths_reject_duplicates():
+    with pytest.raises(ValueError, match="duplicates"):
+        CorpusSchema(item_id_path="/id", additional_return_paths=["/year", "/year"])
+
+
 @pytest.mark.parametrize(
     "field",
     [
         "item_id_path",
-        "document_id_path",
+        "parent_document_id_path",
         "chunk_id_path",
         "chunk_order_path",
-        "title_path",
-        "source_path",
     ],
 )
 def test_path_fields_accept_strings_and_objects(field: str) -> None:
@@ -83,7 +86,7 @@ def test_path_fields_accept_strings_and_objects(field: str) -> None:
         {"item_id_path": "/id", "text_paths": None},
         {"item_id_path": "/id", "text_paths": "/text"},
         {"item_id_path": "/id", "text_paths": [None]},
-        {"item_id_path": "/id", "metadata_paths": {"year": "year"}},
+        {"item_id_path": "/id", "additional_return_paths": ["year"]},
     ],
 )
 def test_invalid_schema_inputs_are_rejected(settings: dict) -> None:
@@ -103,42 +106,27 @@ def test_text_names_never_overwrite_a_distinct_path() -> None:
     ]
     for order in permutations(paths):
         schema = CorpusSchema(item_id_path="/id", text_paths=list(order))
-        assert schema.text_field_map() == {str(path): path for path in paths}
+        assert schema.text_paths_by_string() == {str(path): path for path in paths}
         assert schema.resolve_text_fields([str(paths[0])]) == [paths[0]]
         compiled = _compile(schema)
         for path in paths:
             assert f"{path.render()} AS txt_" in compiled.sql
 
 
-def test_explicit_text_paths_are_deduplicated() -> None:
-    schema = CorpusSchema(
-        item_id_path="/id", text_paths=["/a/text", "/b/text", "/b/text"]
-    )
-    assert schema.text_field_map() == {
-        "/a/text": CosmosPath.parse("/a/text"),
-        "/b/text": CosmosPath.parse("/b/text"),
-    }
-
-
-@pytest.mark.parametrize(
-    "name", ["item_id", "document_id", "chunk_id", "chunk_order", "title", "source"]
-)
-def test_metadata_labels_can_match_standard_result_names(name: str) -> None:
-    schema = CorpusSchema(item_id_path="/id", metadata_paths={name: "/metadata/value"})
-    assert _compile(schema).projected_aliases["md_0"] == name
+def test_text_paths_reject_duplicates() -> None:
+    with pytest.raises(ValueError, match="duplicates"):
+        CorpusSchema(item_id_path="/id", text_paths=["/a/text", "/b/text", "/b/text"])
 
 
 def test_assignment_coerces_paths_and_rejects_invalid_updates() -> None:
     schema = CorpusSchema(item_id_path="/id")
     schema.text_paths = ["/content/text"]
-    schema.metadata_paths = {"year": "/publication/year"}
-    schema.title_path = "/title"
+    schema.additional_return_paths = ["/publication/year"]
     assert schema.text_paths == [CosmosPath.parse("/content/text")]
-    assert schema.metadata_paths["year"] == CosmosPath.parse("/publication/year")
-    assert schema.title_path == CosmosPath.parse("/title")
+    assert schema.additional_return_paths == [CosmosPath.parse("/publication/year")]
     with pytest.raises(UnsafeCosmosPathError):
-        schema.metadata_paths = {"title": "invalid"}
-    assert set(schema.metadata_paths) == {"year"}
+        schema.additional_return_paths = ["invalid"]
+    assert schema.additional_return_paths == [CosmosPath.parse("/publication/year")]
     with pytest.raises(UnsafeCosmosPathError):
         schema.text_paths = ["invalid"]
     assert schema.text_paths == [CosmosPath.parse("/content/text")]
@@ -154,8 +142,8 @@ def test_compiler_revalidates_in_place_edits() -> None:
     compiler = CosmosQueryCompiler(schema)
     assert "txt_0" not in compiler.projection("@k0")[0]
     schema.text_paths.append("/content/text")
-    schema.metadata_paths["year"] = "/publication/year"
-    assert schema.text_field_map() == {
+    schema.additional_return_paths.append("/publication/year")
+    assert schema.text_paths_by_string() == {
         "/content/text": CosmosPath.parse("/content/text")
     }
     compiled = compiler.compile_structured(
@@ -170,13 +158,13 @@ def test_compiler_revalidates_in_place_edits() -> None:
     assert compiler.schema is schema
 
 
-@pytest.mark.parametrize("edit", ["invalid_text", "invalid_metadata_path"])
+@pytest.mark.parametrize("edit", ["invalid_text", "invalid_additional_path"])
 def test_compiler_rejects_invalid_in_place_edits(edit: str) -> None:
     schema = CorpusSchema(item_id_path="/id")
     if edit == "invalid_text":
         schema.text_paths.append("invalid")
     else:
-        schema.metadata_paths["title"] = "invalid"
+        schema.additional_return_paths.append("invalid")
     with pytest.raises((ValidationError, UnsafeCosmosPathError)):
         _compile(schema)
 
@@ -192,9 +180,9 @@ def test_compiler_rejects_invalid_in_place_edits(edit: str) -> None:
     ],
 )
 def test_every_query_checks_schema_before_emitting_sql(method: str) -> None:
-    schema = CorpusSchema(item_id_path="/id", document_id_path="/docid")
+    schema = CorpusSchema(item_id_path="/id", parent_document_id_path="/docid")
     compiler = CosmosQueryCompiler(schema)
-    schema.metadata_paths["title"] = "invalid"
+    schema.additional_return_paths.append("invalid")
     arguments = {"partition_key": None, "cross_partition": True}
     if method == "compile_document_read":
         arguments.update(document_id="report", max_chunks=5)

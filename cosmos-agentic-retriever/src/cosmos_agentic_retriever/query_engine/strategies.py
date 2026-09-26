@@ -17,7 +17,7 @@ from azure.cosmos import ContainerProxy
 
 from cosmos_agentic_retriever.query_engine.compiler import CosmosQueryCompiler
 from cosmos_agentic_retriever.query_engine.executor import CosmosExecutor
-from cosmos_agentic_retriever.query_engine.results_mapping import rows_to_items
+from cosmos_agentic_retriever.query_engine.row_decoding import rows_to_items
 from cosmos_agentic_retriever.query_engine.schema import CorpusSchema
 from cosmos_agentic_retriever.query_engine.types import (
     CrossPartitionQueryDisabled,

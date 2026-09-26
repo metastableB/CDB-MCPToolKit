@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmos_agentic_retriever.query_engine.results_mapping import (
+from cosmos_agentic_retriever.query_engine.row_decoding import (
     assemble_text,
     row_text_fields,
     rows_to_items,
@@ -78,16 +78,14 @@ def test_rows_to_items_empty() -> None:
 def test_rows_to_items_full_row() -> None:
     row = {
         "item_id": 42,
-        "document_id": 7,
+        "parent_document_id": 7,
         "chunk_id": 3,
         "chunk_order": 5,
         "txt_a": "hello",
-        "md_0": 0.9,
-        "md_1": "x",
-        "title": "T",
-        "source": "S",
+        "add_0": 0.9,
+        "add_1": "x",
     }
-    aliases = {"txt_a": "/body", "md_0": "score", "md_1": "source_tag"}
+    aliases = {"txt_a": "/body", "add_0": "/score", "add_1": "/source_tag"}
     items = rows_to_items(
         [row],
         strategy="vector",
@@ -96,22 +94,21 @@ def test_rows_to_items_full_row() -> None:
     )
     item = items[0]
     assert item.item_id == "42"
-    assert item.document_id == "7" and item.chunk_id == "3"
+    assert item.parent_document_id == "7" and item.chunk_id == "3"
     assert item.chunk_order == 5
     assert item.text == "hello"
     assert item.text_fields == {"/body": "hello"}
-    assert item.title == "T" and item.source == "S"
-    assert item.metadata == {"score": 0.9, "source_tag": "x"}
+    assert item.additional_fields == {"/score": 0.9, "/source_tag": "x"}
     assert item.retrieval_strategy == "vector"
     assert item.retrieval_channels == ["vector"]
     assert item.rank == 0
 
 
 def test_rows_to_items_optional_ids_remain_none() -> None:
-    row = {"item_id": "x", "document_id": None, "chunk_id": None}
+    row = {"item_id": "x", "parent_document_id": None, "chunk_id": None}
     item = rows_to_items([row], strategy="s")[0]
     assert item.item_id == "x"
-    assert item.document_id is None
+    assert item.parent_document_id is None
     assert item.chunk_id is None
 
 
@@ -145,12 +142,12 @@ def test_rows_to_items_queried_text_fields_filter_display() -> None:
     assert item.text == "B"
 
 
-def test_rows_to_items_metadata_only_md_prefixed() -> None:
-    row = {"item_id": "x", "md_0": 1, "md_unmapped": 3, "b": 2, "txt_c": "c"}
+def test_rows_to_items_additional_fields_only_add_prefixed() -> None:
+    row = {"item_id": "x", "add_0": 1, "add_unmapped": 3, "b": 2, "txt_c": "c"}
     item = rows_to_items(
-        [row], strategy="s", projected_aliases={"txt_c": "/c", "md_0": "a", "b": "b"}
+        [row], strategy="s", projected_aliases={"txt_c": "/c", "add_0": "/a", "b": "b"}
     )[0]
-    assert item.metadata == {"a": 1}
+    assert item.additional_fields == {"/a": 1}
 
 
 @pytest.mark.parametrize("row", [{}, {"item_id": None}])
@@ -159,14 +156,14 @@ def test_rows_to_items_missing_item_id_raises(row) -> None:
         rows_to_items([row], strategy="full_text")
 
 
-def test_identity_projection_preserves_logical_id_and_metadata():
+def test_identity_projection_preserves_logical_id_and_additional_fields():
     from cosmos_agentic_retriever.query_engine import CorpusSchema, CosmosQueryCompiler
 
     schema = CorpusSchema(
         item_id_path="/record/id",
         text_paths=["/text"],
         partition_key_paths=["/tenant", "/region"],
-        metadata_paths={"cosmos_identity": "/label"},
+        additional_return_paths=["/label"],
     )
     sql, aliases = CosmosQueryCompiler(schema).projection("@k")
     assert (
@@ -176,14 +173,14 @@ def test_identity_projection_preserves_logical_id_and_metadata():
     row = {
         "item_id": "logical",
         "txt_0": "Text",
-        "md_0": "label",
+        "add_0": "label",
         "_cosmos_identity": {"id": "physical", "partition_key": [0, {}]},
     }
     item = rows_to_items([row], strategy="full_text", projected_aliases=aliases)[0]
     assert item.item_id == "logical"
     assert item.cosmos_identity.id == "physical"
     assert item.cosmos_identity.partition_key == (0, {})
-    assert item.metadata == {"cosmos_identity": "label"}
+    assert item.additional_fields == {"/label": "label"}
     assert item.text_fields == {"/text": "Text"}
 
 

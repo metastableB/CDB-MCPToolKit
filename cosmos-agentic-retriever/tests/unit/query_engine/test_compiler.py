@@ -23,13 +23,11 @@ _BODY = CosmosPath.parse("/body")
 def _schema(*, with_docid: bool = True) -> CorpusSchema:
     return CorpusSchema(
         item_id_path="/id",
-        document_id_path="/docid" if with_docid else None,
+        parent_document_id_path="/docid" if with_docid else None,
         chunk_id_path="/id",
         chunk_order_path="/chunk_idx",
-        title_path="/title",
-        source_path="/source_type",
         text_paths=["/text"],
-        metadata_paths={"year": "/year"},
+        additional_return_paths=["/year"],
     )
 
 
@@ -58,18 +56,16 @@ def test_projection_emits_logical_columns_and_alias_map() -> None:
     assert select.startswith("SELECT TOP @k0 ")
     for col in (
         'c["id"] AS item_id',
-        'c["docid"] AS document_id',
+        'c["docid"] AS parent_document_id',
         'c["id"] AS chunk_id',
         'c["chunk_idx"] AS chunk_order',
-        'c["title"] AS title',
-        'c["source_type"] AS source',
         'c["text"] AS txt_0',
-        'c["year"] AS md_0',
+        'c["year"] AS add_0',
     ):
         assert col in select
-    # Text aliases identify full paths; metadata aliases identify configured names.
+    # Text aliases identify full paths; additional aliases identify their paths.
     assert aliases["txt_0"] == "/text"
-    assert aliases["md_0"] == "year"
+    assert aliases["add_0"] == "/year"
 
 
 def test_projection_docstring_example() -> None:
@@ -80,12 +76,17 @@ def test_projection_docstring_example() -> None:
     )
 
 
-def test_projection_does_not_interpolate_metadata_names_into_sql() -> None:
+def test_projection_escapes_additional_return_paths_in_sql() -> None:
+    tricky = CosmosPath(segments=('year" AS injected FROM x --',))
     schema = _schema()
-    schema.metadata_paths = {"year AS injected FROM x --": CosmosPath.parse("/year")}
+    schema.additional_return_paths = [tricky]
     select, aliases = CosmosQueryCompiler(schema).projection("@k0")
-    assert "injected" not in select
-    assert aliases["md_0"] == "year AS injected FROM x --"
+    # The tricky name is escaped inside a quoted field reference (its embedded
+    # double quote becomes \"), so it cannot break out into bare SQL, and the
+    # alias maps to the path string, not a label.
+    assert f"{tricky.render('c')} AS add_0" in select
+    assert '\\"' in tricky.render("c")
+    assert aliases["add_0"] == str(tricky)
 
 
 def test_compiler_preserves_literal_slashes_in_schema_paths() -> None:
@@ -314,9 +315,9 @@ def _compile_contract_query(
 ):
     schema = CorpusSchema(
         item_id_path="/id",
-        document_id_path="/docid",
+        parent_document_id_path="/docid",
         text_paths=["/text"],
-        metadata_paths={"year": "/publication/year", "category": "/category"},
+        additional_return_paths=["/publication/year", "/category"],
     )
     arguments: dict[str, Any] = {
         "partition_key": partition_key,
@@ -434,9 +435,9 @@ def test_complete_compiled_query_contract(
 ) -> None:
     result = _compile_contract_query(method, 1, partition_key, cross_partition)
     expected_select = (
-        'SELECT TOP @k0 c["id"] AS item_id, c["docid"] AS document_id, '
-        'c["text"] AS txt_0, c["publication"]["year"] AS md_0, '
-        'c["category"] AS md_1 FROM c'
+        'SELECT TOP @k0 c["id"] AS item_id, c["docid"] AS parent_document_id, '
+        'c["text"] AS txt_0, c["publication"]["year"] AS add_0, '
+        'c["category"] AS add_1 FROM c'
     )
     assert result.sql == expected_select + " WHERE " + condition + ordering
     assert result.parameters == [
@@ -447,17 +448,17 @@ def test_complete_compiled_query_contract(
     assert result.strategy == strategy
     assert result.projected_aliases == {
         "item_id": "item_id",
-        "document_id": "document_id",
+        "parent_document_id": "parent_document_id",
         "txt_0": "/text",
-        "md_0": "year",
-        "md_1": "category",
+        "add_0": "/publication/year",
+        "add_1": "/category",
     }
 
 
 # --- document read --------------------------------------------------------
 
 
-def test_document_read_without_document_id_path_raises() -> None:
+def test_document_read_without_parent_document_id_path_raises() -> None:
     with pytest.raises(QueryCompilationError):
         _compiler(with_docid=False).compile_document_read(
             document_id="doc-1",
@@ -465,6 +466,31 @@ def test_document_read_without_document_id_path_raises() -> None:
             partition_key=None,
             cross_partition=True,
         )
+
+
+def test_document_read_can_scope_to_a_single_partition() -> None:
+    # A parent-document id is unique only within a partition, so read_document must
+    # be scopable to one partition; otherwise two documents that share a docid in
+    # different partitions would merge. See the PR6 read_document constraint.
+    scoped = _compiler().compile_document_read(
+        document_id="report-7",
+        max_chunks=10,
+        partition_key="tenant-a",
+        cross_partition=False,
+    )
+    assert scoped.partition_key == "tenant-a"
+    assert scoped.enable_cross_partition_query is False
+    assert 'c["docid"] = @doc1' in scoped.sql
+    # The caller controls scope; the compiler honors cross_partition rather than
+    # forcing a fan-out that could collide on a shared docid.
+    fanned = _compiler().compile_document_read(
+        document_id="report-7",
+        max_chunks=10,
+        partition_key=None,
+        cross_partition=True,
+    )
+    assert fanned.partition_key is None
+    assert fanned.enable_cross_partition_query is True
 
 
 # --- errors & injection safety -------------------------------------------
@@ -511,11 +537,11 @@ def test_filter_path_does_not_require_projection_or_alias() -> None:
     assert query.projected_aliases == {"item_id": "item_id"}
 
 
-def test_filter_and_output_source_names_are_independent() -> None:
-    from cosmos_agentic_retriever.query_engine.results_mapping import rows_to_items
+def test_filter_and_additional_return_paths_are_independent() -> None:
+    from cosmos_agentic_retriever.query_engine.row_decoding import rows_to_items
 
     schema = CorpusSchema(
-        item_id_path="/id", source_path="/url", metadata_paths={"source": "/source"}
+        item_id_path="/id", additional_return_paths=["/source"]
     )
     query = CosmosQueryCompiler(schema).compile_structured(
         limit=5,
@@ -524,16 +550,14 @@ def test_filter_and_output_source_names_are_independent() -> None:
         partition_key=None,
         cross_partition=True,
     )
-    assert 'c["url"] AS source' in query.sql
-    assert 'c["source"] AS md_0' in query.sql
+    assert 'c["source"] AS add_0' in query.sql
     assert 'WHERE c["source"] = @p1' in query.sql
     result = rows_to_items(
-        [{"item_id": "paper-7", "source": "https://example.com", "md_0": "SciFact"}],
+        [{"item_id": "paper-7", "add_0": "SciFact"}],
         strategy="structured",
         projected_aliases=query.projected_aliases,
     )[0]
-    assert result.source == "https://example.com"
-    assert result.metadata == {"source": "SciFact"}
+    assert result.additional_fields == {"/source": "SciFact"}
 
 
 @pytest.mark.parametrize(

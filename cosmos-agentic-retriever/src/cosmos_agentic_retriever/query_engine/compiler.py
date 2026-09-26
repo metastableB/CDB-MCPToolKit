@@ -21,15 +21,14 @@ The first four methods additionally accept a list of filters:
 
 Multiple filters are combined with AND.
 
-Filters name stored field paths, such as /publication/year. CorpusSchema only
-maps returned fields and item identities. Each method returns a CompiledCosmosQuery
-with SQL in its sql field and placeholder values in its parameters field.
-For example, a year filter becomes c["publication"]["year"] = @p1 in the SQL,
-with {"name": "@p1", "value": 2020} in that list. @p1 is a SQL placeholder:
-Cosmos DB receives its value separately and treats it as data, not SQL code.
-Filter values, IDs, vectors, and limits are supplied this way. Full-text terms
-are quoted and escaped directly in the SQL. Note, the compiler builds commands
-but does not execute them.
+Filters are applied on field paths, such as /publication/year. Each method
+returns a CompiledCosmosQuery with SQL in its sql field and placeholder values
+in its parameters field.  For example, a year filter becomes
+c["publication"]["year"] = @p1 in the SQL, with {"name": "@p1", "value": 2020}
+in that list. @p1 is a SQL placeholder: Cosmos DB receives its value separately
+and treats it as data, not SQL code.  Filter values, IDs, vectors, and limits
+are supplied this way. Full-text terms are quoted and escaped directly in the
+SQL.
 """
 
 from __future__ import annotations
@@ -49,6 +48,7 @@ from cosmos_agentic_retriever.query_engine.types import (
     InFilter,
     QueryCompilationError,
     RangeFilter,
+    SQLColumnAliases,
 )
 
 _ALIAS = "c"
@@ -93,21 +93,19 @@ class CosmosQueryCompiler:
             cols.append(f"{path.render(_ALIAS)} AS {logical}")
             aliases[logical] = logical
 
-        add("item_id", s.item_id_path)
-        add("document_id", s.document_id_path)
-        add("chunk_id", s.chunk_id_path)
-        add("chunk_order", s.chunk_order_path)
-        add("title", s.title_path)
-        add("source", s.source_path)
+        add(SQLColumnAliases.ITEM_ID, s.item_id_path)
+        add(SQLColumnAliases.PARENT_DOCUMENT_ID, s.parent_document_id_path)
+        add(SQLColumnAliases.CHUNK_ID, s.chunk_id_path)
+        add(SQLColumnAliases.CHUNK_ORDER, s.chunk_order_path)
 
-        for i, (fname, fpath) in enumerate(s.text_field_map().items()):
-            alias = f"txt_{i}"
+        for i, (fname, fpath) in enumerate(s.text_paths_by_string().items()):
+            alias = f"{SQLColumnAliases.TEXT_PREFIX}{i}"
             cols.append(f"{fpath.render(_ALIAS)} AS {alias}")
             aliases[alias] = fname
-        for i, (key, path) in enumerate(s.metadata_paths.items()):
-            alias = f"md_{i}"
-            cols.append(f"{path.render(_ALIAS)} AS {alias}")
-            aliases[alias] = key
+        for i, (fname, fpath) in enumerate(s.additional_paths_by_string().items()):
+            alias = f"{SQLColumnAliases.ADDITIONAL_PREFIX}{i}"
+            cols.append(f"{fpath.render(_ALIAS)} AS {alias}")
+            aliases[alias] = fname
 
         if s.partition_key_paths:
             # Preserve undefined components as {}, not null or a shortened array.
@@ -118,9 +116,10 @@ class CosmosQueryCompiler:
             cols.append(
                 '{"id": c["id"], "partition_key": ['
                 + components
-                + "]} AS _cosmos_identity"
+                + "]} AS "
+                + SQLColumnAliases.COSMOS_IDENTITY
             )
-            aliases["_cosmos_identity"] = "cosmos_identity"
+            aliases[SQLColumnAliases.COSMOS_IDENTITY] = "cosmos_identity"
 
         select = f"SELECT TOP {limit_param} " + ", ".join(cols) + f" FROM {_ALIAS}"
         return select, aliases
@@ -298,13 +297,13 @@ class CosmosQueryCompiler:
         cross_partition: bool,
     ) -> CompiledCosmosQuery:
         s = self.schema
-        if s.document_id_path is None:
-            raise QueryCompilationError("document_id_path is not configured")
+        if s.parent_document_id_path is None:
+            raise QueryCompilationError("parent_document_id_path is not configured")
         bag = _ParamBag()
         limit_p = self._limit(bag, max_chunks)
         select, aliases = self.projection(limit_p)
         doc_p = bag.add(document_id, prefix="doc")
-        where = f" WHERE {s.document_id_path.render(_ALIAS)} = {doc_p}"
+        where = f" WHERE {s.parent_document_id_path.render(_ALIAS)} = {doc_p}"
         return CompiledCosmosQuery(
             sql=select + where,
             parameters=bag.params,

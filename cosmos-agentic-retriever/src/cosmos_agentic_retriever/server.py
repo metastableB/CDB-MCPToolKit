@@ -1,12 +1,22 @@
-"""Expose full-text search over an explicit list of Cosmos containers through HTTP.
+"""HTTP layer for the cosmos agentic retriever: the FastAPI app factory, its
+routes, and lifecycle.
 
-A named container searches one configured target; omission searches all targets.
-Each target has its own schema and partition rules. Responses identify the source
-of each item and report partial failures. Cosmos ranks within containers; Python
-combines those ranked lists. No other search modes or discovery are enabled.
+create_app(settings) builds the app and exposes two endpoints:
+- GET /health: readiness only (200 ready, 503 not ready).
+- POST /search: search the configured containers and return combined,
+  source-tagged results.
 
-The app owns one Cosmos client and shares one query executor across retrievers.
-Injected retrievers remain caller-owned. Blocking work runs off the HTTP event loop.
+POST /search names one container to search a single configured target, or omits
+it to search all. It returns 200 with each item's source and, on partial failure,
+the successful results plus sanitized per-target errors; 500 if every target
+fails; 422 for an invalid body; 400 for an unsupported scope or search term; 503
+when the app is not ready. Ranking within a container and fusion across
+containers are handled by the multi-container retriever, not here. The current
+release searches with full text only.
+
+The app owns one Cosmos client and one shared query executor across retrievers;
+injected retrievers remain caller-owned. Blocking SDK work runs off the HTTP
+event loop.
 """
 
 from __future__ import annotations
@@ -24,7 +34,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from cosmos_agentic_retriever.config import RetrieverSettings, get_settings
+from cosmos_agentic_retriever.config import RetrieverConfig, get_config
 from cosmos_agentic_retriever.orchestration import (
     ContainerTarget,
     MultiContainerRetriever,
@@ -43,7 +53,12 @@ from cosmos_agentic_retriever.query_engine.types import (
 
 
 class SearchRequest(BaseModel):
-    """HTTP input from the MCP caller, with maxDocuments limiting returned items."""
+    """HTTP input from the MCP caller, with maxDocuments limiting returned items.
+
+    TODO: `container` selects one target, or all when omitted. Support a subset
+    (a list of container names) later; the fan-out already operates on an
+    arbitrary set of names, so this is an additive input-only change.
+    """
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -65,7 +80,7 @@ class SearchRequest(BaseModel):
 
 
 def create_app(
-    settings: RetrieverSettings | None = None,
+    settings: RetrieverConfig | None = None,
     *,
     retrievers: dict[str, CorpusRetriever] | None = None,
 ) -> FastAPI:
@@ -75,7 +90,7 @@ def create_app(
     Their clients remain caller-owned. Otherwise the app owns its client. No discovery,
     container creation, or index changes are performed.
     """
-    resolved = (settings or get_settings()).model_copy(deep=True)
+    resolved = (settings or get_config()).model_copy(deep=True)
     if retrievers is not None:
         if retrievers.keys() != resolved.cosmos_containers.keys():
             raise ValueError("retrievers must match the configured containers")
@@ -151,7 +166,7 @@ def create_app(
     app = FastAPI(
         title="Cosmos Retriever",
         version="0.1.0",
-        description="Full-text search over explicitly configured Cosmos containers.",
+        description="Search over explicitly configured Cosmos containers.",
         lifespan=lifespan,
     )
     app.state.retriever = None

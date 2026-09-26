@@ -9,8 +9,8 @@ from pydantic import ValidationError
 from cosmos_agentic_retriever import __main__ as cli
 from cosmos_agentic_retriever.config import (
     ContainerConfig,
-    RetrieverSettings,
-    get_settings,
+    RetrieverConfig,
+    get_config,
 )
 from cosmos_agentic_retriever.query_engine.types import UnknownField
 
@@ -44,7 +44,7 @@ def test_settings_from_environment(monkeypatch):
     monkeypatch.setenv("HOST", "127.0.0.2")
     monkeypatch.setenv("PORT", "9100")
     monkeypatch.setenv("LOG_LEVEL", "warning")
-    settings = get_settings()
+    settings = get_config()
     assert settings.cosmos_database == "D"
     assert list(settings.cosmos_containers) == ["C"]
     assert str(settings.cosmos_containers["C"].cosmos_schema.text_paths[0]) == "/text"
@@ -59,7 +59,7 @@ def test_settings_from_environment(monkeypatch):
         "warning",
     )
     monkeypatch.setenv("COSMOS_DATABASE", "changed")
-    assert get_settings().cosmos_database == "changed"
+    assert get_config().cosmos_database == "changed"
     assert settings.cosmos_database == "D"
 
 
@@ -71,7 +71,7 @@ def test_required_settings_fail_before_launch(monkeypatch, name):
     _environment(monkeypatch)
     monkeypatch.delenv(name)
     with pytest.raises(ValidationError) as error:
-        get_settings()
+        get_config()
     assert any(
         item["loc"] == (name.lower(),) and item["type"] == "missing"
         for item in error.value.errors()
@@ -85,7 +85,7 @@ def test_settings_do_not_implicitly_read_dotenv(monkeypatch, tmp_path):
         'COSMOS_CONTAINERS={"C":{"cosmos_schema":{"item_id_path":"/id","partition_key_paths":["/tenant"],"text_paths":["/text"]}}}\n'
     )
     with pytest.raises(ValidationError):
-        get_settings()
+        get_config()
 
 
 @pytest.mark.parametrize(
@@ -129,7 +129,7 @@ def test_settings_reject_invalid_configuration(options):
         },
     }
     with pytest.raises(ValidationError):
-        RetrieverSettings(**{**values, **options})
+        RetrieverConfig(**{**values, **options})
 
 
 def test_settings_require_explicit_selection_for_multiple_fields():
@@ -147,13 +147,13 @@ def test_settings_require_explicit_selection_for_multiple_fields():
         },
     }
     with pytest.raises(UnknownField):
-        RetrieverSettings(**values)
+        RetrieverConfig(**values)
     values["cosmos_containers"]["C"]["search_text_fields"] = ["/body"]
-    settings = RetrieverSettings(**values)
+    settings = RetrieverConfig(**values)
     assert settings.cosmos_containers["C"].search_text_fields == ["/body"]
     values["cosmos_containers"]["C"]["search_text_fields"] = ["body"]
     with pytest.raises(UnknownField):
-        RetrieverSettings(**values)
+        RetrieverConfig(**values)
 
 
 @pytest.mark.parametrize("key", [0, "", "tenant"])
@@ -201,7 +201,7 @@ def test_physical_identity_requires_explicit_partition_paths(partition_key):
     ],
 )
 def test_serve_command(monkeypatch, arguments, host, port):
-    settings = RetrieverSettings(
+    settings = RetrieverConfig(
         account_uri="https://example.documents.azure.com",
         cosmos_database="D",
         cosmos_containers={
@@ -214,7 +214,7 @@ def test_serve_command(monkeypatch, arguments, host, port):
             }
         },
     )
-    monkeypatch.setattr(cli, "get_settings", Mock(return_value=settings))
+    monkeypatch.setattr(cli, "get_config", Mock(return_value=settings))
     app = object()
     build = Mock(return_value=app)
     run = Mock()
