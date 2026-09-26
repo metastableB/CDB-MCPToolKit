@@ -1,9 +1,9 @@
 # cosmos-agentic-retriever
 
 This submodule is the HTTP service that backs the Azure Cosmos DB MCP Toolkit's
-`agentic_search` tool. Given a natural-language query, it searches a set of
-explicitly configured Cosmos DB for NoSQL containers and returns a ranked set of
-relevant documents.
+`agentic_search` tool. Given a natural-language question, it searches a set of
+explicitly configured Cosmos DB for NoSQL containers and returns an answer
+together with the ranked documents that support it.
 
 ## Setting up and Running the Service
 
@@ -34,6 +34,66 @@ The signed-in identity needs Cosmos data-plane permission to query the
 containers, and the configured text paths must already have a full-text policy
 and index. The HTTP API has no caller authentication and is intended to be bound
 loopback (local) or behind an authenticated private gateway.
+
+### Configure with a YAML file
+
+For more than a container or two, set `COSMOS_RETRIEVER_CONFIG` to a YAML file
+instead of packing every container into the `COSMOS_CONTAINERS` variable:
+
+```yaml
+account_uri: https://YOUR-ACCOUNT.documents.azure.com:443/
+cosmos_database: YOUR-DATABASE
+cosmos_credential: azure_cli
+cosmos_containers:
+  articles:
+    cosmos_schema:
+      item_id_path: /id
+      partition_key_paths: ['/tenant']
+      text_paths: ['/text']
+```
+
+```bash
+export COSMOS_RETRIEVER_CONFIG='./config.yaml'
+az login
+python -m cosmos_agentic_retriever serve
+```
+
+Values in the file win; any field it omits falls back to that field's environment
+variable, so keep secrets like `COSMOS_KEY` in the environment — or use
+`azure_cli` credentials and keep no secrets at all.
+
+## Agentic search
+
+The service can answer a natural-language question instead of running a single
+search. It runs a short loop: it asks a language model what to search for, runs
+the search, reads the results, and searches again until it can answer or a turn
+cap is reached. Bring your own model — any OpenAI-compatible chat-completions
+endpoint works (OpenAI, Azure OpenAI, a local vLLM server, or another gateway).
+
+Point the service at your model before starting it:
+
+```bash
+export LLM_BASE_URL='https://YOUR-ENDPOINT/v1'
+export LLM_MODEL='YOUR-MODEL'
+export LLM_API_KEY='YOUR-KEY'          # only if your endpoint requires one
+```
+
+Then ask a question:
+
+```bash
+curl --fail-with-body http://127.0.0.1:9000/agent_search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"how does battery recycling work?"}'
+```
+
+The response has the model's `answer`, the ranked `documents` that support it —
+pooled from the searches the agent ran, deduplicated, each with its
+`retrieval_id` and source container — and how the loop ended (`terminal_reason`
+is `stop`, `max_turns`, or `error`; `turns` counts the model calls made). Set
+`AGENT_MAX_TURNS` (default 6) to bound the loop and `AGENT_MAX_DOCUMENTS`
+(default 10) to cap items per search and in the returned set. Without
+`LLM_BASE_URL` and `LLM_MODEL` the service still serves plain search, but
+`/agent_search` returns 503.
 
 ## Connect the MCP toolkit
 
