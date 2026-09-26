@@ -1,10 +1,13 @@
 """HTTP layer for the cosmos agentic retriever: the FastAPI app factory, its
 routes, and lifecycle.
 
-create_app(settings) builds the app and exposes two endpoints:
+create_app(settings) builds the app and exposes three endpoints:
 - GET /health: readiness only (200 ready, 503 not ready).
 - POST /search: search the configured containers and return combined,
   source-tagged results.
+- POST /agent_search: run the bounded search agent over a question and return its
+  answer with the ranked documents that support it; available only when an LLM
+  endpoint is configured.
 
 POST /search names one container to search a single configured target, or omits
 it to search all. It returns 200 with each item's source and, on partial failure,
@@ -34,10 +37,19 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from cosmos_agentic_retriever.agent import (
+    ChatClient,
+    make_search_corpus_tool,
+    run_agent_search,
+)
+from cosmos_agentic_retriever.agent.prompts import SYSTEM_PROMPT
 from cosmos_agentic_retriever.config import RetrieverConfig, get_config
 from cosmos_agentic_retriever.orchestration import (
+    ContainerItem,
     ContainerTarget,
     MultiContainerRetriever,
+    MultiSearchResult,
+    pool_rrf,
 )
 from cosmos_agentic_retriever.query_engine import CosmosExecutor
 from cosmos_agentic_retriever.query_engine.full_text_terms import tokenize_for_fts
@@ -74,6 +86,21 @@ class SearchRequest(BaseModel):
     @field_validator("query")
     @classmethod
     def _reject_blank_query(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("query must not be blank")
+        return value
+
+
+class AgentSearchRequest(BaseModel):
+    """HTTP input for the agentic endpoint: a question for the search agent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1, max_length=4096)
+
+    @field_validator("query")
+    @classmethod
+    def _reject_blank_agent_query(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("query must not be blank")
         return value
@@ -157,9 +184,24 @@ def create_app(
                 },
                 max_workers=resolved.query_engine.max_concurrency,
             )
+            app.state.chat_client = (
+                ChatClient(
+                    base_url=str(resolved.llm_base_url),
+                    model=resolved.llm_model,
+                    api_key=(
+                        resolved.llm_api_key.get_secret_value()
+                        if resolved.llm_api_key is not None
+                        else "unused"
+                    ),
+                    max_tokens=resolved.llm_max_tokens,
+                )
+                if resolved.llm_base_url is not None and resolved.llm_model is not None
+                else None
+            )
             yield
         finally:
             app.state.retriever = None
+            app.state.chat_client = None
             with anyio.CancelScope(shield=True):
                 await anyio.to_thread.run_sync(resources.close)
 
@@ -170,6 +212,7 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.retriever = None
+    app.state.chat_client = None
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(
@@ -270,5 +313,70 @@ def create_app(
         except Exception as exc:
             logger.exception("search_failed", error_type=type(exc).__name__)
             return JSONResponse(status_code=500, content={"error": "Search failed."})
+
+    @app.post("/agent_search")
+    async def agent_search(request: AgentSearchRequest) -> JSONResponse:
+        active: MultiContainerRetriever | None = app.state.retriever
+        client: ChatClient | None = app.state.chat_client
+        if active is None:
+            return JSONResponse(
+                status_code=503, content={"error": "Service is not ready."}
+            )
+        if client is None:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "Agent search is not configured. Set LLM_BASE_URL and LLM_MODEL."
+                },
+            )
+
+        runs: list[list[ContainerItem]] = []
+
+        def search(query: str, count: int) -> MultiSearchResult:
+            if not tokenize_for_fts(query):
+                return MultiSearchResult()
+            requests = {
+                ContainerTarget(resolved.cosmos_database, name): QuerySearchRequest(
+                    query=query,
+                    limit=count,
+                    text_fields=selected_fields[name].copy(),
+                    partition_key=resolved.cosmos_containers[name].partition_key,
+                    filters=[],
+                )
+                for name in resolved.cosmos_containers
+            }
+            result = active.search(requests, limit=count)
+            runs.append(result.items)
+            return result
+
+        tool = make_search_corpus_tool(
+            search,
+            default_max_documents=resolved.agent_max_documents,
+            max_documents_cap=resolved.agent_max_documents,
+        )
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: run_agent_search(
+                    request.query,
+                    complete=client.complete,
+                    tools=[tool],
+                    system_prompt=SYSTEM_PROMPT,
+                    max_turns=resolved.agent_max_turns,
+                )
+            )
+        except Exception:
+            logger.exception("agent_search_failed")
+            return JSONResponse(
+                status_code=500, content={"error": "Agent search failed."}
+            )
+        documents = pool_rrf(runs, limit=resolved.agent_max_documents)
+        return JSONResponse(
+            content={
+                "answer": result.answer,
+                "documents": [item.model_dump(mode="json") for item in documents],
+                "terminal_reason": result.terminal_reason,
+                "turns": result.turns,
+            }
+        )
 
     return app

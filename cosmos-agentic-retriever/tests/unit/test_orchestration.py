@@ -5,9 +5,11 @@ from unittest.mock import Mock
 import pytest
 
 from cosmos_agentic_retriever.orchestration import (
+    ContainerItem,
     ContainerTarget,
     MultiContainerRetriever,
     fuse_rrf,
+    pool_rrf,
 )
 from cosmos_agentic_retriever.query_engine.types import (
     CosmosItemIdentity,
@@ -42,7 +44,34 @@ def test_fuse_rrf_interleaves_and_tags_additional_fields():
     assert original[0].rank == 1 and original[0].additional_fields == {}
 
 
-def test_qualified_ids_are_distinct_and_delimiters_escaped():
+def _ranked(*pairs):
+    return [
+        ContainerItem(
+            item_id=rid, rank=rank, database="D", container="A", retrieval_id=rid
+        )
+        for rid, rank in pairs
+    ]
+
+
+def test_pool_rrf_ranks_documents_found_by_more_searches_first():
+    pooled = pool_rrf(
+        [_ranked(("x", 0), ("y", 1)), _ranked(("z", 0), ("x", 1))], limit=3
+    )
+    assert [item.retrieval_id for item in pooled] == ["x", "z", "y"]
+    assert [item.rank for item in pooled] == [0, 1, 2]
+
+
+def test_pool_rrf_dedupes_by_identity_and_caps_to_limit():
+    pooled = pool_rrf(
+        [_ranked(("a", 0), ("b", 1), ("c", 2)), _ranked(("a", 0))], limit=2
+    )
+    assert [item.retrieval_id for item in pooled] == ["a", "b"]
+
+
+def test_pool_rrf_rejects_bad_limit():
+    with pytest.raises(ValueError, match="positive integer"):
+        pool_rrf([], limit=0)
+
     import json
     from urllib.parse import unquote
 

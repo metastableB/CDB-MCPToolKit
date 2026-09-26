@@ -88,6 +88,43 @@ def test_settings_do_not_implicitly_read_dotenv(monkeypatch, tmp_path):
         get_config()
 
 
+_YAML_CONFIG = (
+    "account_uri: https://file.documents.azure.com\n"
+    "cosmos_database: FILEDB\n"
+    "cosmos_containers:\n"
+    "  C:\n"
+    "    cosmos_schema:\n"
+    "      item_id_path: /id\n"
+    "      partition_key_paths: ['/tenant']\n"
+    "      text_paths: ['/text']\n"
+)
+
+
+def test_get_config_reads_yaml_file(monkeypatch, tmp_path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(_YAML_CONFIG)
+    monkeypatch.setenv("COSMOS_RETRIEVER_CONFIG", str(config_file))
+    settings = get_config()
+    assert settings.cosmos_database == "FILEDB"
+    assert list(settings.cosmos_containers) == ["C"]
+
+
+def test_yaml_file_value_beats_environment(monkeypatch, tmp_path):
+    _environment(monkeypatch)
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(_YAML_CONFIG)
+    monkeypatch.setenv("COSMOS_RETRIEVER_CONFIG", str(config_file))
+    assert get_config().cosmos_database == "FILEDB"
+
+
+def test_environment_fills_field_absent_from_yaml(monkeypatch, tmp_path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(_YAML_CONFIG)
+    monkeypatch.setenv("COSMOS_RETRIEVER_CONFIG", str(config_file))
+    monkeypatch.setenv("COSMOS_KEY", "env-secret")
+    assert get_config().cosmos_key.get_secret_value() == "env-secret"
+
+
 @pytest.mark.parametrize(
     "options",
     [

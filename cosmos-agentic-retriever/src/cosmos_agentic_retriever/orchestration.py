@@ -92,6 +92,39 @@ def fuse_rrf(
     return result
 
 
+def pool_rrf(
+    runs: Sequence[Sequence[ContainerItem]], *, limit: int
+) -> list[ContainerItem]:
+    """Merge the ranked lists from several searches into one ranked list.
+
+    The agent searches more than once, so one document can turn up in several of
+    those searches. This keeps one copy per document (by physical Cosmos identity,
+    carried in retrieval_id) and scores each by its reciprocal rank summed over the
+    searches that returned it, so a document several queries found ranks above one
+    only a single query found. Ties follow first appearance. At most limit items
+    come back, re-ranked from zero. Inputs are left unchanged except each returned
+    item's rank.
+    """
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ValueError("limit must be a positive integer")
+    scores: dict[str, float] = {}
+    chosen: dict[str, ContainerItem] = {}
+    for items in runs:
+        for item in items:
+            key = item.retrieval_id
+            scores[key] = scores.get(key, 0.0) + 1.0 / (60 + item.rank)
+            chosen.setdefault(key, item)
+    pooled = []
+    for rank, key in enumerate(
+        sorted(scores, key=scores.__getitem__, reverse=True)[:limit]
+    ):
+        item = chosen[key]
+        item.rank = rank
+        pooled.append(item)
+    return pooled
+
+
+
 class MultiContainerRetriever:
     """Run a separate request per configured target with bounded worker threads.
 
