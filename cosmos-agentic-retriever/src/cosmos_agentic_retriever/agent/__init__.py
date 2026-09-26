@@ -7,7 +7,7 @@ or a turn cap is hit. It searches with the ``full_text_search`` tool, backed by 
 in-process multi-container retriever.
 """
 
-from cosmos_agentic_retriever.agent.llm import ChatClient
+from cosmos_agentic_retriever.agent.chat_client import ChatClient
 from cosmos_agentic_retriever.agent.loop import (
     AgentResult,
     LlmTurn,

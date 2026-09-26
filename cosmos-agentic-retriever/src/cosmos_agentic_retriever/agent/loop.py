@@ -1,7 +1,7 @@
 """Run model requests and tool calls until the model answers or the turn limit is reached.
 
 run_agent_search calls the supplied complete function for the model's next
-reply. The service passes ChatClient.complete from llm.py. That client
+reply. The service passes ChatClient.complete from chat_client.py. That client
 makes the API request and returns the reply and requested tool calls; it does
 not execute them.
 

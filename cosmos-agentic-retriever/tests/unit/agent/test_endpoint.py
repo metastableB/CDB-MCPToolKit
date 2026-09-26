@@ -7,7 +7,7 @@ from unittest.mock import Mock
 from azure.cosmos import ContainerProxy
 from fastapi.testclient import TestClient
 
-from cosmos_agentic_retriever.agent.llm import ChatClient
+from cosmos_agentic_retriever.agent.chat_client import ChatClient
 from cosmos_agentic_retriever.agent.loop import LlmTurn, ToolCall
 from cosmos_agentic_retriever.config import RetrieverConfig
 from cosmos_agentic_retriever.orchestration import ContainerItem, MultiSearchResult
