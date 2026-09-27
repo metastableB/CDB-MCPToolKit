@@ -184,19 +184,15 @@ def create_app(
                 },
                 max_workers=resolved.query_engine.max_concurrency,
             )
-            app.state.chat_client = (
-                ChatClient(
-                    base_url=str(resolved.llm_base_url),
-                    model=resolved.llm_model,
-                    api_key=(
-                        resolved.llm_api_key.get_secret_value()
-                        if resolved.llm_api_key is not None
-                        else "unused"
-                    ),
-                    max_tokens=resolved.llm_max_tokens,
-                )
-                if resolved.llm_base_url is not None and resolved.llm_model is not None
-                else None
+            app.state.chat_client = ChatClient(
+                base_url=str(resolved.llm_base_url),
+                model=resolved.llm_model,
+                api_key=(
+                    resolved.llm_api_key.get_secret_value()
+                    if resolved.llm_api_key is not None
+                    else "unused"
+                ),
+                params=dict(resolved.llm_params),
             )
             yield
         finally:
@@ -318,16 +314,9 @@ def create_app(
     async def agent_search(request: AgentSearchRequest) -> JSONResponse:
         active: MultiContainerRetriever | None = app.state.retriever
         client: ChatClient | None = app.state.chat_client
-        if active is None:
+        if active is None or client is None:
             return JSONResponse(
                 status_code=503, content={"error": "Service is not ready."}
-            )
-        if client is None:
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "error": "Agent search is not configured. Set LLM_BASE_URL and LLM_MODEL."
-                },
             )
 
         runs: list[list[ContainerItem]] = []

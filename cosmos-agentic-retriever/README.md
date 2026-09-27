@@ -13,22 +13,28 @@ Install into your Python environment:
 python -m pip install .
 ```
 
-Configure the account, database, and containers through environment variables,
-then start the HTTP service. It only reads your existing containers — it never
-creates or changes databases, containers, indexes, or documents.
+Configure the account, database, containers, and a model through environment
+variables, then start the HTTP service. This service only reads your existing
+containers --- it never creates or changes databases, containers, indexes, or
+documents.
 
 ```bash
 export ACCOUNT_URI='https://YOUR-ACCOUNT.documents.azure.com:443/'
 export COSMOS_DATABASE='YOUR-DATABASE'
 export COSMOS_CONTAINERS='{"articles":{"cosmos_schema":{"item_id_path":"/id","partition_key_paths":["/tenant"],"text_paths":["/text"]}}}'
 export COSMOS_CREDENTIAL='azure_cli'
+export LLM_BASE_URL='https://YOUR-ENDPOINT/v1'
+export LLM_MODEL='YOUR-MODEL'
+export LLM_API_KEY='YOUR-KEY'          # only if your endpoint requires one
 az login
 python -m cosmos_agentic_retriever serve
 ```
 
 Replace the `YOUR-*` values with your own. `COSMOS_CONTAINERS` is a JSON object
 keyed by container name; each entry declares that container's schema and search
-scope. 
+scope. The agent needs a model: `LLM_BASE_URL` and `LLM_MODEL` point at any
+OpenAI-compatible chat-completions endpoint (OpenAI, Azure OpenAI, a local vLLM
+server, or another gateway).
 
 The signed-in identity needs Cosmos data-plane permission to query the
 containers, and the configured text paths must already have a full-text policy
@@ -44,6 +50,8 @@ instead of packing every container into the `COSMOS_CONTAINERS` variable:
 account_uri: https://YOUR-ACCOUNT.documents.azure.com:443/
 cosmos_database: YOUR-DATABASE
 cosmos_credential: azure_cli
+llm_base_url: https://YOUR-ENDPOINT/v1
+llm_model: YOUR-MODEL
 cosmos_containers:
   articles:
     cosmos_schema:
@@ -91,9 +99,7 @@ pooled from the searches the agent ran, deduplicated, each with its
 `retrieval_id` and source container — and how the loop ended (`terminal_reason`
 is `stop`, `max_turns`, or `error`; `turns` counts the model calls made). Set
 `AGENT_MAX_TURNS` (default 6) to bound the loop and `AGENT_MAX_DOCUMENTS`
-(default 10) to cap items per search and in the returned set. Without
-`LLM_BASE_URL` and `LLM_MODEL` the service still serves plain search, but
-`/agent_search` returns 503.
+(default 10) to cap items per search and in the returned set.
 
 ## Connect the MCP toolkit
 

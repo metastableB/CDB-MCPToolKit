@@ -40,9 +40,10 @@ def _reply(*, tool_calls=None):
     )
 
 
-def test_complete_sends_tool_descriptions_without_executing_handlers(client):
+@pytest.mark.parametrize("token_parameter", ["max_tokens", "max_completion_tokens"])
+def test_complete_sends_model_options_and_tool_descriptions(client, token_parameter):
     chat, create = client
-    chat.max_tokens = 256
+    chat.params = {token_parameter: 256, "temperature": 0.2, "model": "ignored"}
     create.return_value = _reply()
     messages = [{"role": "user", "content": "Find recycling documents."}]
     handler = Mock()
@@ -56,19 +57,22 @@ def test_complete_sends_tool_descriptions_without_executing_handlers(client):
     turn = chat.complete(messages, [tool])
 
     create.assert_called_once_with(
-        max_tokens=256,
-        model="test-model",
-        messages=messages,
-        tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.parameters,
-                },
-            }
-        ],
+        **{
+            token_parameter: 256,
+            "temperature": 0.2,
+            "model": "test-model",
+            "messages": messages,
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters,
+                    },
+                }
+            ],
+        }
     )
     handler.assert_not_called()
     assert turn.content == "The answer."

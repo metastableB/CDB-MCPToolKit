@@ -55,6 +55,8 @@ def _settings(**options) -> RetrieverConfig:
     return RetrieverConfig(
         account_uri="https://example.documents.azure.com",
         cosmos_database="D",
+        llm_base_url="https://model.example.com/v1",
+        llm_model="test-model",
         cosmos_containers={
             "C": {
                 "cosmos_schema": {
@@ -133,13 +135,6 @@ def test_agent_search_returns_supporting_documents():
     assert body["documents"][0]["text"] == "recycling one"
 
 
-def test_agent_search_unconfigured_returns_503():
-    with TestClient(_app(_settings())) as http:
-        response = http.post("/agent_search", json={"query": "hi"})
-    assert response.status_code == 503
-    assert "not configured" in response.json()["error"]
-
-
 def test_agent_search_blank_query_rejected():
     with TestClient(_app(_settings())) as http:
         http.app.state.chat_client = _FakeChat([])
@@ -148,8 +143,5 @@ def test_agent_search_blank_query_rejected():
 
 
 def test_configured_llm_builds_chat_client():
-    settings = _settings(
-        llm_base_url="https://model.example.com/v1", llm_model="gpt-x"
-    )
-    with TestClient(_app(settings)) as http:
+    with TestClient(_app(_settings())) as http:
         assert isinstance(http.app.state.chat_client, ChatClient)

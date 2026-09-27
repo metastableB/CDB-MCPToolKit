@@ -335,6 +335,8 @@ def service_settings(
         cosmos_database=validate_database_name(database),
         cosmos_key=None,
         cosmos_credential=credential,
+        llm_base_url="https://model.example.com/v1",
+        llm_model="test-model",
         cosmos_containers={
             fixture.name: {
                 "cosmos_schema": fixture.schema,

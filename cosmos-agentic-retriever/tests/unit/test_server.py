@@ -56,6 +56,8 @@ def _settings(**options):
         **{
             "account_uri": "https://example.documents.azure.com",
             "cosmos_database": "D",
+            "llm_base_url": "https://model.example.com/v1",
+            "llm_model": "test-model",
             "cosmos_containers": {
                 "C": {
                     "cosmos_schema": {

@@ -14,6 +14,7 @@ toolkit, we illustrate the main components with a direct usage pattern here
 - Assume we are logged in and our azure identity has permissions to query both containers.
 - Assume Cosmos full-text search is configured to index the articles container's
 text field and the reports container's content.body field.
+- Assume LLM_BASE_URL and LLM_MODEL select a chat endpoint that supports tool calls.
 
 
 	import os
@@ -27,6 +28,9 @@ text field and the reports container's content.body field.
 		cosmos_database="example-db",
 		cosmos_credential="azure_cli",
 		cosmos_key=None,
+		llm_base_url=os.environ["LLM_BASE_URL"],
+		llm_model=os.environ["LLM_MODEL"],
+		llm_api_key=os.environ.get("LLM_API_KEY"),
 		cosmos_containers={
 			"articles": {"cosmos_schema": {
 				"item_id_path": "/id",

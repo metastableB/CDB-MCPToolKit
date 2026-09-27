@@ -19,6 +19,8 @@ def _environment(monkeypatch):
     values = {
         "ACCOUNT_URI": "https://example.documents.azure.com",
         "COSMOS_DATABASE": "D",
+        "LLM_BASE_URL": "https://model.example.com/v1",
+        "LLM_MODEL": "test-model",
         "COSMOS_CONTAINERS": json.dumps(
             {
                 "C": {
@@ -91,6 +93,8 @@ def test_settings_do_not_implicitly_read_dotenv(monkeypatch, tmp_path):
 _YAML_CONFIG = (
     "account_uri: https://file.documents.azure.com\n"
     "cosmos_database: FILEDB\n"
+    "llm_base_url: https://model.example.com/v1\n"
+    "llm_model: test-model\n"
     "cosmos_containers:\n"
     "  C:\n"
     "    cosmos_schema:\n"
@@ -155,6 +159,8 @@ def test_settings_reject_invalid_configuration(options):
     values = {
         "account_uri": "https://example.documents.azure.com",
         "cosmos_database": "D",
+        "llm_base_url": "https://model.example.com/v1",
+        "llm_model": "test-model",
         "cosmos_containers": {
             "C": {
                 "cosmos_schema": {
@@ -173,6 +179,8 @@ def test_settings_require_explicit_selection_for_multiple_fields():
     values = {
         "account_uri": "https://example.documents.azure.com",
         "cosmos_database": "D",
+        "llm_base_url": "https://model.example.com/v1",
+        "llm_model": "test-model",
         "cosmos_containers": {
             "C": {
                 "cosmos_schema": {
@@ -241,6 +249,8 @@ def test_serve_command(monkeypatch, arguments, host, port):
     settings = RetrieverConfig(
         account_uri="https://example.documents.azure.com",
         cosmos_database="D",
+        llm_base_url="https://model.example.com/v1",
+        llm_model="test-model",
         cosmos_containers={
             "C": {
                 "cosmos_schema": {

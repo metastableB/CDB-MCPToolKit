@@ -12,15 +12,16 @@ containers share the account credentials and query concurrency limit.
 The current release searches with full text only, so each container declares the
 text fields to search. Additional search modes will be added later.
 
-The optional `LLM_*` and `AGENT_*` variables configure the agentic search
-endpoint: the model endpoint to call and the loop's turn and result caps. Leave
-them unset to run search only.
+Alternatively, set `COSMOS_RETRIEVER_CONFIG` to a YAML file path to read the
+whole configuration from that file instead of many environment variables. Values
+in the file win; any field the file omits still falls back to its environment
+variable, so secrets like `COSMOS_KEY` can stay in the environment, or be
+dropped entirely when using CLI auth.
 
-Set `COSMOS_RETRIEVER_CONFIG` to a YAML file path to read the whole configuration
-from that file instead of many environment variables. Values in the file win;
-any field the file omits still falls back to its environment variable, so
-secrets like `COSMOS_KEY` can stay in the environment, or be dropped entirely
-when using CLI auth.
+The agent needs a model: `llm_base_url` and `llm_model` are required and point at
+any OpenAI-compatible endpoint. Put per-call model options such as `max_tokens`
+(or `max_completion_tokens`) and `temperature` in `llm_params`; they are sent to
+the model unchanged.
 """
 
 import os
@@ -83,20 +84,12 @@ class RetrieverConfig(BaseSettings):
     host: str = Field(default="127.0.0.1", min_length=1)
     port: int = Field(default=9000, ge=1, le=65535)
     log_level: Literal["debug", "info", "warning", "error", "critical"] = "info"
-    llm_base_url: AnyHttpUrl | None = None
-    llm_model: str | None = None
+    llm_base_url: AnyHttpUrl
+    llm_model: str = Field(min_length=1)
     llm_api_key: SecretStr | None = None
-    llm_max_tokens: int = Field(default=1024, ge=1, le=32768)
+    llm_params: dict[str, Any] = Field(default_factory=dict)
     agent_max_turns: int = Field(default=6, ge=1, le=50)
     agent_max_documents: int = Field(default=10, ge=1, le=50)
-
-    @model_validator(mode="after")
-    def _agent_llm_pairing(self) -> Self:
-        if (self.llm_base_url is None) != (self.llm_model is None):
-            raise ValueError(
-                "configure both llm_base_url and llm_model, or neither"
-            )
-        return self
 
     @field_validator("cosmos_database")
     @classmethod
@@ -127,7 +120,7 @@ class RetrieverConfig(BaseSettings):
 def get_config() -> RetrieverConfig:
     """Build the settings at startup from a YAML file or the environment.
 
-    When `COSMOS_RETRIEVER_CONFIG` names a file, its YAML contents are validated as
+    When `COSMOS_RETRIEVER_CONFIG` is set, its YAML contents are validated as
     the settings, and any field the file omits falls back to that field's
     environment variable. When the variable is unset, every field comes from the
     environment. Reads happen here at startup, not during import.

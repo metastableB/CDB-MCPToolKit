@@ -9,7 +9,7 @@ return an error so the loop can stop.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import structlog
@@ -55,14 +55,15 @@ def _parse_arguments(raw: str | None) -> dict[str, Any]:
 class ChatClient:
     """Send messages to the configured OpenAI-compatible chat endpoint.
 
-    base_url is the API address; model is the model or deployment name.
-    max_tokens limits the output of each request.
+    base_url is the API address; model is the model or deployment name. params
+    adds request options such as max_completion_tokens and temperature. The
+    client supplies model, messages, and tools even if params contains those keys.
     """
 
     base_url: str
     model: str
     api_key: str = "unused"
-    max_tokens: int = 1024
+    params: dict[str, Any] = field(default_factory=dict)
     timeout: float = 60.0
 
     def __post_init__(self) -> None:
@@ -78,10 +79,10 @@ class ChatClient:
         if the request fails or the response cannot be read.
         """
         request: dict[str, Any] = {
+            **self.params,
             "model": self.model,
             "messages": messages,
             "tools": to_openai_tools(tools),
-            "max_tokens": self.max_tokens,
         }
         try:
             response = self._client.chat.completions.create(**request)  # type: ignore[call-overload]
