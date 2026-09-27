@@ -1,6 +1,7 @@
 """Validate service configuration without credentials or network access."""
 
 import json
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -107,24 +108,37 @@ _YAML_CONFIG = (
 def test_get_config_reads_yaml_file(monkeypatch, tmp_path):
     config_file = tmp_path / "config.yaml"
     config_file.write_text(_YAML_CONFIG)
-    monkeypatch.setenv("COSMOS_RETRIEVER_CONFIG", str(config_file))
+    monkeypatch.setenv("COSMOS_RETRIEVER_CONFIG_FILE", str(config_file))
     settings = get_config()
     assert settings.cosmos_database == "FILEDB"
     assert list(settings.cosmos_containers) == ["C"]
+
+
+def test_example_yaml_loads_multiple_containers(monkeypatch):
+    example = Path(__file__).resolve().parents[2] / "config.example.yaml"
+    monkeypatch.setenv("COSMOS_RETRIEVER_CONFIG_FILE", str(example))
+
+    settings = get_config()
+
+    assert list(settings.cosmos_containers) == ["articles", "reports"]
+    assert str(settings.cosmos_containers["articles"].cosmos_schema.text_paths[0]) == "/text"
+    assert str(settings.cosmos_containers["reports"].cosmos_schema.text_paths[0]) == "/content/body"
+    assert settings.cosmos_credential == "azure_cli"
+    assert settings.cosmos_key is None and settings.llm_api_key is None
 
 
 def test_yaml_file_value_beats_environment(monkeypatch, tmp_path):
     _environment(monkeypatch)
     config_file = tmp_path / "config.yaml"
     config_file.write_text(_YAML_CONFIG)
-    monkeypatch.setenv("COSMOS_RETRIEVER_CONFIG", str(config_file))
+    monkeypatch.setenv("COSMOS_RETRIEVER_CONFIG_FILE", str(config_file))
     assert get_config().cosmos_database == "FILEDB"
 
 
 def test_environment_fills_field_absent_from_yaml(monkeypatch, tmp_path):
     config_file = tmp_path / "config.yaml"
     config_file.write_text(_YAML_CONFIG)
-    monkeypatch.setenv("COSMOS_RETRIEVER_CONFIG", str(config_file))
+    monkeypatch.setenv("COSMOS_RETRIEVER_CONFIG_FILE", str(config_file))
     monkeypatch.setenv("COSMOS_KEY", "env-secret")
     assert get_config().cosmos_key.get_secret_value() == "env-secret"
 

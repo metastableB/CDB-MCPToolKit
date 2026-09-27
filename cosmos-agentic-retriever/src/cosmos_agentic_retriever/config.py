@@ -12,7 +12,7 @@ containers share the account credentials and query concurrency limit.
 The current release searches with full text only, so each container declares the
 text fields to search. Additional search modes will be added later.
 
-Alternatively, set `COSMOS_RETRIEVER_CONFIG` to a YAML file path to read the
+Alternatively, set `COSMOS_RETRIEVER_CONFIG_FILE` to a YAML file path to read the
 whole configuration from that file instead of many environment variables. Values
 in the file win; any field the file omits still falls back to its environment
 variable, so secrets like `COSMOS_KEY` can stay in the environment, or be
@@ -120,12 +120,12 @@ class RetrieverConfig(BaseSettings):
 def get_config() -> RetrieverConfig:
     """Build the settings at startup from a YAML file or the environment.
 
-    When `COSMOS_RETRIEVER_CONFIG` is set, its YAML contents are validated as
+    When `COSMOS_RETRIEVER_CONFIG_FILE` is set, its YAML contents are validated as
     the settings, and any field the file omits falls back to that field's
     environment variable. When the variable is unset, every field comes from the
     environment. Reads happen here at startup, not during import.
     """
-    path = os.environ.get("COSMOS_RETRIEVER_CONFIG")
+    path = os.environ.get("COSMOS_RETRIEVER_CONFIG_FILE")
     if path:
         data = yaml.safe_load(Path(path).read_text()) or {}
         return RetrieverConfig.model_validate(data)

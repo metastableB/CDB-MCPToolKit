@@ -3,7 +3,7 @@
 This submodule is the HTTP service that backs the Azure Cosmos DB MCP Toolkit's
 `agentic_search` tool. Given a natural-language question, it searches a set of
 explicitly configured Cosmos DB for NoSQL containers and returns an answer
-together with the ranked documents that support it.
+together with the documents that support it.
 
 ## Setting up and Running the Service
 
@@ -43,63 +43,29 @@ loopback (local) or behind an authenticated private gateway.
 
 ### Configure with a YAML file
 
-For more than a container or two, set `COSMOS_RETRIEVER_CONFIG` to a YAML file
-instead of packing every container into the `COSMOS_CONTAINERS` variable:
-
-```yaml
-account_uri: https://YOUR-ACCOUNT.documents.azure.com:443/
-cosmos_database: YOUR-DATABASE
-cosmos_credential: azure_cli
-llm_base_url: https://YOUR-ENDPOINT/v1
-llm_model: YOUR-MODEL
-cosmos_containers:
-  articles:
-    cosmos_schema:
-      item_id_path: /id
-      partition_key_paths: ['/tenant']
-      text_paths: ['/text']
-```
+Use [config.example.yaml](config.example.yaml) as the template for a local
+`config.local.yaml`. The example defines two containers with different text
+fields. Set your account, database, model, and container schemas in the local
+file, then start the service:
 
 ```bash
-export COSMOS_RETRIEVER_CONFIG='./config.yaml'
+export COSMOS_RETRIEVER_CONFIG_FILE='./config.local.yaml'
 az login
 python -m cosmos_agentic_retriever serve
 ```
 
-Values in the file win; any field it omits falls back to that field's environment
-variable, so keep secrets like `COSMOS_KEY` in the environment — or use
-`azure_cli` credentials and keep no secrets at all.
+Local `config*.yaml` and `config*.yml` files are ignored by Git. YAML values
+take precedence over environment variables. Leave `COSMOS_KEY` and `LLM_API_KEY`
+out of the YAML so they come from the environment.  With `azure_cli`, Cosmos
+needs no key; your model endpoint may still require one.
 
-## Agentic search
-
-The service can answer a natural-language question instead of running a single
-search. It runs a short loop: it asks a language model what to search for, runs
-the search, reads the results, and searches again until it can answer or a turn
-cap is reached. Bring your own model — any OpenAI-compatible chat-completions
-endpoint works (OpenAI, Azure OpenAI, a local vLLM server, or another gateway).
-
-Point the service at your model before starting it:
-
+You can keep environment variables in a local `.env` rather than exporting them
+one by one.
 ```bash
-export LLM_BASE_URL='https://YOUR-ENDPOINT/v1'
-export LLM_MODEL='YOUR-MODEL'
-export LLM_API_KEY='YOUR-KEY'          # only if your endpoint requires one
+set -a
+source .env
+set +a
 ```
-
-Then ask a question:
-
-```bash
-curl --fail-with-body http://127.0.0.1:9000/agent_search \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"how does battery recycling work?"}'
-```
-
-The response has the model's `answer`, the ranked `documents` that support it —
-pooled from the searches the agent ran, deduplicated, each with its
-`retrieval_id` and source container — and how the loop ended (`terminal_reason`
-is `stop`, `max_turns`, or `error`; `turns` counts the model calls made). Set
-`AGENT_MAX_TURNS` (default 6) to bound the loop and `AGENT_MAX_DOCUMENTS`
-(default 10) to cap items per search and in the returned set.
 
 ## Connect the MCP toolkit
 
@@ -110,8 +76,7 @@ export COSMOS_RETRIEVER_URL='http://127.0.0.1:9000'
 export COSMOS_RETRIEVER_TIMEOUT_S=600
 ```
 
-Call `agentic_search` without `schemaOverride` (or with `"none"`); the schema is
-configured at service startup, not per request.
+This connects the `agentic_search` mcp tool call with this service.
 
 ## Tests
 

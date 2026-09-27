@@ -1,0 +1,21 @@
+account_uri: https://YOUR-ACCOUNT.documents.azure.com:443/
+cosmos_database: YOUR-DATABASE
+cosmos_credential: azure_cli
+
+llm_base_url: https://YOUR-ENDPOINT/v1
+llm_model: YOUR-MODEL
+llm_params: {}
+agent_max_turns: 6
+agent_max_documents: 10
+
+cosmos_containers:
+  articles:
+    cosmos_schema:
+      item_id_path: /id
+      partition_key_paths: ["/tenant"]
+      text_paths: ["/text"]
+  reports:
+    cosmos_schema:
+      item_id_path: /id
+      partition_key_paths: ["/tenant"]
+      text_paths: ["/content/body"]
