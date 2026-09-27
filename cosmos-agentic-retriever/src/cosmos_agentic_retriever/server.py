@@ -1,21 +1,15 @@
-"""HTTP layer for the cosmos agentic retriever: the FastAPI app factory, its
-routes, and lifecycle.
+"""Serve questions from the MCP toolkit and return answers with retrieved documents.
 
-create_app(settings) builds the app and exposes three endpoints:
-- GET /health: readiness only (200 ready, 503 not ready).
-- POST /search: search the configured containers and return combined,
-  source-tagged results.
-- POST /agent_search: run the bounded search agent over a question and return its
-  answer with the ranked documents that support it; available only when an LLM
-  endpoint is configured.
+Agetn loop is triggered by a POST to the `/agentic_search` endpoint. It accepts
+the MCP caller's query, maxDocuments, and optional database and container. Each
+tool call keeps the caller's container selection and filters. A failed model
+request returns 502 with a sanitized error, not a successful answer.
 
-POST /search names one container to search a single configured target, or omits
-it to search all. It returns 200 with each item's source and, on partial failure,
-the successful results plus sanitized per-target errors; 500 if every target
-fails; 422 for an invalid body; 400 for an unsupported scope or search term; 503
-when the app is not ready. Ranking within a container and fusion across
-containers are handled by the multi-container retriever, not here. The current
-release searches with full text only.
+POST /full_text_search runs one full-text query without calling the model.
+GET /health returns 200 when ready and 503 otherwise. Search requests return
+400 for unsupported scope or overrides, and 422 for an invalid body. Container
+errors are reported separately from successful results; if every attempted
+container search fails, the response is 500.
 
 The app owns one Cosmos client and one shared query executor across retrievers;
 injected retrievers remain caller-owned. Blocking SDK work runs off the HTTP
@@ -45,7 +39,6 @@ from cosmos_agentic_retriever.agent import (
 from cosmos_agentic_retriever.agent.prompts import SYSTEM_PROMPT
 from cosmos_agentic_retriever.config import RetrieverConfig, get_config
 from cosmos_agentic_retriever.orchestration import (
-    ContainerItem,
     ContainerTarget,
     MultiContainerRetriever,
     MultiSearchResult,
@@ -86,21 +79,6 @@ class SearchRequest(BaseModel):
     @field_validator("query")
     @classmethod
     def _reject_blank_query(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("query must not be blank")
-        return value
-
-
-class AgentSearchRequest(BaseModel):
-    """HTTP input for the agentic endpoint: a question for the search agent."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    query: str = Field(min_length=1, max_length=4096)
-
-    @field_validator("query")
-    @classmethod
-    def _reject_blank_agent_query(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("query must not be blank")
         return value
@@ -226,13 +204,8 @@ def create_app(
             content={"status": "ok" if ready else "unavailable"},
         )
 
-    @app.post("/search")
-    async def search(request: SearchRequest) -> JSONResponse:
-        active: MultiContainerRetriever | None = app.state.retriever
-        if active is None:
-            return JSONResponse(
-                status_code=503, content={"error": "Service is not ready."}
-            )
+    def selected_containers(request: SearchRequest) -> list[str]:
+        """Validate the caller's scope and return the selected container names."""
         if request.database not in (
             None,
             resolved.cosmos_database,
@@ -240,34 +213,36 @@ def create_app(
             request.container is not None
             and request.container not in resolved.cosmos_containers
         ):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "error": "Only the configured database and containers are supported."
-                },
+            raise RetrievalError(
+                "Only the configured database and containers are supported."
             )
         if request.overrides:
+            raise RetrievalError(
+                "Per-request overrides are not supported. Configure the service instead."
+            )
+        names = (
+            [request.container]
+            if request.container is not None
+            else list(resolved.cosmos_containers)
+        )
+        if request.container_filters is not None and set(
+            request.container_filters
+        ) != set(names):
+            raise RetrievalError(
+                "container_filters must name every selected container and no others. Use [] for an unfiltered container."
+            )
+        return names
+
+    @app.post("/full_text_search")
+    async def full_text_search(request: SearchRequest) -> JSONResponse:
+        """Run one caller-supplied query without involving the language model."""
+        active: MultiContainerRetriever | None = app.state.retriever
+        if active is None:
             return JSONResponse(
-                status_code=400,
-                content={
-                    "error": "Per-request overrides are not supported. Configure the service instead."
-                },
+                status_code=503, content={"error": "Service is not ready."}
             )
         try:
-            names = (
-                [request.container]
-                if request.container is not None
-                else list(resolved.cosmos_containers)
-            )
-            if request.container_filters is not None and set(
-                request.container_filters
-            ) != set(names):
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "error": "container_filters must name every selected container and no others. Use [] for an unfiltered container."
-                    },
-                )
+            names = selected_containers(request)
             requests = {
                 ContainerTarget(resolved.cosmos_database, name): QuerySearchRequest(
                     query=request.query,
@@ -310,8 +285,9 @@ def create_app(
             logger.exception("search_failed", error_type=type(exc).__name__)
             return JSONResponse(status_code=500, content={"error": "Search failed."})
 
-    @app.post("/agent_search")
-    async def agent_search(request: AgentSearchRequest) -> JSONResponse:
+    @app.post("/agentic_search")
+    async def agent_search(request: SearchRequest) -> JSONResponse:
+        """Answer a question using tool queries restricted to the caller's scope."""
         active: MultiContainerRetriever | None = app.state.retriever
         client: ChatClient | None = app.state.chat_client
         if active is None or client is None:
@@ -319,9 +295,15 @@ def create_app(
                 status_code=503, content={"error": "Service is not ready."}
             )
 
-        runs: list[list[ContainerItem]] = []
+        try:
+            names = selected_containers(request)
+        except RetrievalError as exc:
+            return JSONResponse(status_code=400, content={"error": str(exc)})
+        max_documents = min(request.max_documents, resolved.agent_max_documents)
+        runs: list[MultiSearchResult] = []
 
         def search(query: str, count: int) -> MultiSearchResult:
+            """Run the model's query with the caller's fixed scope and filters."""
             if not tokenize_for_fts(query):
                 return MultiSearchResult()
             requests = {
@@ -330,18 +312,22 @@ def create_app(
                     limit=count,
                     text_fields=selected_fields[name].copy(),
                     partition_key=resolved.cosmos_containers[name].partition_key,
-                    filters=[],
+                    filters=(
+                        request.container_filters[name]
+                        if request.container_filters is not None
+                        else []
+                    ),
                 )
-                for name in resolved.cosmos_containers
+                for name in names
             }
             result = active.search(requests, limit=count)
-            runs.append(result.items)
+            runs.append(result)
             return result
 
         tool = make_full_text_search_tool(
             search,
-            default_max_documents=resolved.agent_max_documents,
-            max_documents_cap=resolved.agent_max_documents,
+            default_max_documents=max_documents,
+            max_documents_cap=max_documents,
         )
         try:
             result = await anyio.to_thread.run_sync(
@@ -358,14 +344,26 @@ def create_app(
             return JSONResponse(
                 status_code=500, content={"error": "Agent search failed."}
             )
-        documents = pool_rrf(runs, limit=resolved.agent_max_documents)
-        return JSONResponse(
-            content={
-                "answer": result.answer,
-                "documents": [item.model_dump(mode="json") for item in documents],
-                "terminal_reason": result.terminal_reason,
-                "turns": result.turns,
-            }
-        )
+        documents = pool_rrf([run.items for run in runs], limit=max_documents)
+        searched = list(dict.fromkeys(target for run in runs for target in run.searched))
+        errors = {target: error for run in runs for target, error in run.errors.items()}
+        body = {
+            "answer": result.answer,
+            "documents": [item.model_dump(mode="json") for item in documents],
+            "terminal_reason": result.terminal_reason,
+            "turns": result.turns,
+            "searched": [target._asdict() for target in searched],
+            "errors": [
+                {**target._asdict(), "error": error} for target, error in errors.items()
+            ],
+            "partial": bool(errors) and bool(searched),
+        }
+        if result.terminal_reason == "error":
+            body.update(answer="", error="Model request failed.")
+            return JSONResponse(status_code=502, content=body)
+        if runs and not searched:
+            body.update(answer="", error="Search failed for all selected containers.")
+            return JSONResponse(status_code=500, content=body)
+        return JSONResponse(content=body)
 
     return app

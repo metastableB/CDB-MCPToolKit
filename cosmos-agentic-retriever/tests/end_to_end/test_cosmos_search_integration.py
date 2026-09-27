@@ -39,7 +39,7 @@ def _search(
         body["container"] = container
     if container_filters is not None:
         body["container_filters"] = container_filters
-    response = client.post("/search", json=body)
+    response = client.post("/full_text_search", json=body)
     assert response.status_code == 200, response.text
     result = response.json()
     assert result["errors"] == [] and result["partial"] is False, result
@@ -187,7 +187,7 @@ def test_selected_text_field_changes_top_match(synthetic_settings, field, expect
     ],
 )
 def test_request_scope_and_schema_overrides_are_rejected(live_http, options):
-    response = live_http.post("/search", json={"query": "battery", **options})
+    response = live_http.post("/full_text_search", json={"query": "battery", **options})
     assert response.status_code == 400 and response.json()["error"]
 
 

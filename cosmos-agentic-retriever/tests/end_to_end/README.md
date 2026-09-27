@@ -48,3 +48,15 @@ RUN_COSMOS_LIVE=1 python -m pytest tests/end_to_end/test_cosmos_search_integrati
 ```
 
 Use the same dataset file and code version you set up with.
+
+To test the agent, also set `COSMOS_TEST_LLM_BASE_URL` to the model's
+OpenAI-compatible API base URL and `COSMOS_TEST_LLM_MODEL` to its model or
+deployment name. Set `COSMOS_TEST_LLM_API_KEY` in the environment if the endpoint
+requires a key, then run:
+
+```bash
+RUN_COSMOS_LIVE=1 python -m pytest tests/end_to_end/test_agent_integration.py -q
+```
+
+This calls a real model and Cosmos through the Python test client. It does not
+run the .NET MCP server.

@@ -49,12 +49,14 @@ text field and the reports container's content.body field.
 
 From another terminal, search both containers with one request:
 
-	curl --fail-with-body http://127.0.0.1:9000/search \
+	curl --fail-with-body http://127.0.0.1:9000/agentic_search \
 	  -H 'Content-Type: application/json' \
 	  -d '{"query":"battery recycling","maxDocuments":5}'
 
 Add "container":"articles" to the JSON body to search only articles. The response
-contains at most five items across both containers, not five from each. Each item
+contains an answer and documents from the selected containers. This example sets
+maxDocuments to 5; increase it to allow more returned documents. The service's
+agent_max_documents setting also caps that number (default 10). Each document
 identifies its database and container. If a container's search fails, the response
 includes that error. See the README to run the service and connect the MCP toolkit.
 """

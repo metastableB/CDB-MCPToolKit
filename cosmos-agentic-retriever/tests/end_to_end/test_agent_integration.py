@@ -43,7 +43,7 @@ def agent_http(synthetic_settings):
 
 def test_agent_search_answers_with_supporting_documents(agent_http):
     response = agent_http.post(
-        "/agent_search",
+        "/agentic_search",
         json={"query": "What do the documents say about battery recycling?"},
     )
     assert response.status_code == 200, response.text

@@ -122,7 +122,7 @@ def test_lifespan_builds_once_and_closes_owned_resources(monkeypatch, authentica
             == 2
         )
         for _ in range(2):
-            assert http.post("/search", json={"query": "battery"}).status_code == 200
+            assert http.post("/full_text_search", json={"query": "battery"}).status_code == 200
             assert app.state.retriever is engine
         client.close.assert_not_called()
         assert http.get("/health").status_code == 200
@@ -211,7 +211,7 @@ def test_injected_retriever_does_not_create_clients(monkeypatch):
             client.app.state.retriever._retrievers[ContainerTarget("D", "C")]
             is retriever
         )
-        assert client.post("/search", json={"query": "battery"}).status_code == 200
+        assert client.post("/full_text_search", json={"query": "battery"}).status_code == 200
     external_client.close.assert_not_called()
     constructor.assert_not_called()
     credentials.assert_not_called()
@@ -250,7 +250,7 @@ def test_requests_before_startup_are_not_ready():
     for _ in range(2):
         health = client.get("/health")
         assert health.status_code == 503 and health.json() == {"status": "unavailable"}
-        response = client.post("/search", json={"query": "battery"})
+        response = client.post("/full_text_search", json={"query": "battery"})
         assert response.status_code == 503 and response.json() == {
             "error": "Service is not ready."
         }
@@ -264,7 +264,7 @@ def test_empty_overrides_use_server_configuration(overrides):
     client, container = _client()
     with client:
         response = client.post(
-            "/search",
+            "/full_text_search",
             json={"query": "battery", "maxDocuments": 50, "overrides": overrides},
         )
     assert response.status_code == 200
@@ -340,7 +340,7 @@ def test_search_happy_path_returns_result_dict() -> None:
     )
     with client:
         response = client.post(
-            "/search",
+            "/full_text_search",
             json={
                 "query": "battery",
                 "database": "D",
@@ -386,7 +386,7 @@ def test_search_happy_path_returns_result_dict() -> None:
 def test_search_omitted_target_uses_configured_container() -> None:
     client, container = _client()
     with client:
-        response = client.post("/search", json={"query": "battery"})
+        response = client.post("/full_text_search", json={"query": "battery"})
     assert response.status_code == 200
     assert response.json() == {
         "documents": [],
@@ -412,7 +412,7 @@ def test_search_omitted_target_uses_configured_container() -> None:
 def test_unsupported_scope_and_overrides_rejected_before_query(options) -> None:
     client, container = _client()
     with client:
-        response = client.post("/search", json={"query": "battery", **options})
+        response = client.post("/full_text_search", json={"query": "battery", **options})
     assert response.status_code == 400
     assert response.json()["error"]
     container.query_items.assert_not_called()
@@ -439,7 +439,7 @@ def test_unsupported_scope_and_overrides_rejected_before_query(options) -> None:
 def test_bad_body_rejected_before_query(options) -> None:
     client, container = _client()
     with client:
-        response = client.post("/search", json={"query": "battery", **options})
+        response = client.post("/full_text_search", json={"query": "battery", **options})
     assert response.status_code == 422
     container.query_items.assert_not_called()
 
@@ -448,7 +448,7 @@ def test_validation_errors_do_not_echo_input():
     client, container = _client()
     with client:
         response = client.post(
-            "/search", json={"query": "battery", "api_key": "private-test-value"}
+            "/full_text_search", json={"query": "battery", "api_key": "private-test-value"}
         )
     assert response.status_code == 422
     assert response.json() == {"error": "Invalid search request."}
@@ -460,7 +460,7 @@ def test_invalid_json_body_is_rejected(body):
     client, container = _client()
     with client:
         response = client.post(
-            "/search", content=body, headers={"Content-Type": "application/json"}
+            "/full_text_search", content=body, headers={"Content-Type": "application/json"}
         )
     assert response.status_code == 422
     assert response.json() == {"error": "Invalid search request."}
@@ -470,7 +470,7 @@ def test_invalid_json_body_is_rejected(body):
 def test_no_searchable_terms_rejected_before_query() -> None:
     client, container = _client()
     with client:
-        response = client.post("/search", json={"query": "!!!"})
+        response = client.post("/full_text_search", json={"query": "!!!"})
     assert response.status_code == 400
     assert response.json()["type"] == "QueryCompilationError"
     container.query_items.assert_not_called()
@@ -506,7 +506,7 @@ def test_search_engine_exception_returns_500(failure) -> None:
             ]
         )
     with client:
-        response = client.post("/search", json={"query": "battery"})
+        response = client.post("/full_text_search", json={"query": "battery"})
     assert response.status_code == 500
     if failure == "serialization":
         assert response.json() == {"error": "Search failed."}
@@ -532,7 +532,7 @@ def test_health() -> None:
 def test_configured_text_fields_are_forwarded() -> None:
     client, container = _client(paths=["/title", "/body"], text_fields=["/body"])
     with client:
-        response = client.post("/search", json={"query": "battery"})
+        response = client.post("/full_text_search", json={"query": "battery"})
     assert response.status_code == 200
     assert container.query_items.call_args.kwargs["query"].endswith(
         'ORDER BY RANK FullTextScore(c["body"], "battery")'
@@ -609,7 +609,7 @@ def test_container_filters_use_each_targets_stored_paths(monkeypatch, selected):
         **options,
     }
     with TestClient(app) as http:
-        response = http.post("/search", json=body)
+        response = http.post("/full_text_search", json=body)
         assert response.status_code == 200
         assert response.json()["partial"] is False
         assert len(response.json()["documents"]) <= 3
@@ -637,7 +637,7 @@ def test_container_filters_use_each_targets_stored_paths(monkeypatch, selected):
             item["additional_fields"] == {} for item in response.json()["documents"]
         )
         assert (
-            http.post("/search", json={"query": "battery", **options}).status_code
+            http.post("/full_text_search", json={"query": "battery", **options}).status_code
             == 200
         )
         for name in names:
@@ -651,7 +651,7 @@ def test_explicit_empty_filters_and_parameterized_values(monkeypatch):
     value = "SciFact' OR true --"
     with TestClient(app) as http:
         response = http.post(
-            "/search",
+            "/full_text_search",
             json={
                 "query": "battery",
                 "container_filters": {
@@ -724,7 +724,7 @@ def test_explicit_empty_filters_and_parameterized_values(monkeypatch):
 def test_invalid_container_filters_fail_before_any_query(monkeypatch, options, status):
     app, containers, _ = _multi_app(monkeypatch)
     with TestClient(app) as http:
-        response = http.post("/search", json={"query": "battery", **options})
+        response = http.post("/full_text_search", json={"query": "battery", **options})
     assert response.status_code == status
     for container in containers.values():
         container.query_items.assert_not_called()
@@ -741,7 +741,7 @@ def test_multi_container_scope_schema_partition_and_results(
         engines = list(app.state.retriever._retrievers.values())
         assert engines[0]._executor is engines[1]._executor
         response = http.post(
-            "/search", json={"query": "battery", "maxDocuments": 3, **options}
+            "/full_text_search", json={"query": "battery", "maxDocuments": 3, **options}
         )
     assert response.status_code == 200
     body = response.json()
@@ -795,7 +795,7 @@ def test_multi_container_failures_are_not_silent(monkeypatch, failed):
         else:
             container.query_items.side_effect = lambda **kwargs: iter([])
     with TestClient(app) as http:
-        response = http.post("/search", json={"query": "battery"})
+        response = http.post("/full_text_search", json={"query": "battery"})
     body = response.json()
     assert response.status_code == (500 if len(failed) == 2 else 200)
     assert body["documents"] == []
@@ -823,7 +823,7 @@ def test_invalid_multi_target_request_runs_no_queries(monkeypatch):
             {"query": "!!!"},
         ):
             assert (
-                http.post("/search", json={"query": "battery", **options}).status_code
+                http.post("/full_text_search", json={"query": "battery", **options}).status_code
                 == 400
             )
     for container in containers.values():
@@ -860,7 +860,7 @@ def test_concurrent_http_requests_share_query_budget(monkeypatch, capacity):
         container.query_items.side_effect = rows
     with TestClient(app) as http, ThreadPoolExecutor(max_workers=2) as pool:
         futures = [
-            pool.submit(http.post, "/search", json={"query": "battery"})
+            pool.submit(http.post, "/full_text_search", json={"query": "battery"})
             for _ in range(2)
         ]
         try:
@@ -898,10 +898,10 @@ def test_cross_partition_identity_survives_http_pipeline():
     )
     with client:
         all_results = client.post(
-            "/search", json={"query": "battery", "maxDocuments": 5}
+            "/full_text_search", json={"query": "battery", "maxDocuments": 5}
         ).json()
         one_target = client.post(
-            "/search", json={"query": "battery", "container": "C", "maxDocuments": 5}
+            "/full_text_search", json={"query": "battery", "container": "C", "maxDocuments": 5}
         ).json()
     assert all_results["errors"] == [] and all_results["partial"] is False
     assert all_results["documents"] == one_target["documents"]
@@ -926,6 +926,6 @@ def test_missing_physical_identity_from_backend_is_an_error():
     client, container = _client()
     container.query_items.return_value = iter([{"item_id": "logical", "txt_0": "text"}])
     with client:
-        response = client.post("/search", json={"query": "battery"})
+        response = client.post("/full_text_search", json={"query": "battery"})
     assert response.status_code == 500
     assert response.json()["documents"] == []
