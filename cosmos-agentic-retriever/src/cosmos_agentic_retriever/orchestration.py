@@ -95,16 +95,21 @@ def fuse_rrf(
 def pool_rrf(
     runs: Sequence[Sequence[ContainerItem]], *, limit: int
 ) -> list[ContainerItem]:
-    """Merge the ranked lists from several searches into one ranked list.
+    """Merge the ranked lists from the agent's searches into one ranked list.
 
-    The agent searches more than once, so one document can turn up in several of
-    those searches. This keeps one copy per document (by physical Cosmos identity,
-    carried in retrieval_id) and scores each by its reciprocal rank summed over the
-    searches that returned it, so a document several queries found ranks above one
-    only a single query found. Ties follow first appearance. At most limit items
-    come back, re-ranked from zero. Inputs are left unchanged except each returned
-    item's rank.
+    The agent searches more than once, so a document can appear in more than one
+    search. Each document is kept once (by physical Cosmos identity, carried in
+    retrieval_id) and scored: for every search that returned it, add
+    1 / (60 + its position in that search), then sort by total score. This is
+    reciprocal-rank fusion, the same merge `fuse_rrf` uses across containers. It
+    favors documents that rank high, and documents that more than one of the
+    agent's queries turned up. Ties keep first-seen order; at most limit items
+    return, re-ranked from zero. Inputs are unchanged except each returned item's
+    rank.
     """
+    # TODO: reciprocal-rank fusion is one policy for pooling the agent's searches.
+    # Either support several (e.g. best-rank, last-query) and let the caller
+    # choose, or benchmark the options and pick the best default.
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError("limit must be a positive integer")
     scores: dict[str, float] = {}
