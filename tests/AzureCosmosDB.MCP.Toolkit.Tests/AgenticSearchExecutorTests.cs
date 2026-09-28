@@ -69,9 +69,11 @@ public sealed class AgenticSearchExecutorTests : IDisposable
     public async Task RunAsync_forwards_request_payload_to_service()
     {
         string? capturedBody = null;
+        string? capturedPath = null;
         using var server = StubServer.Start((ctx, reqBody) =>
         {
             capturedBody = reqBody;
+            capturedPath = ctx.Request.Url?.AbsolutePath;
             ctx.Response.StatusCode = 200;
             return "{\"query\":\"q\",\"documents\":[],\"num_turns\":0,\"elapsed_s\":0.0}";
         });
@@ -82,6 +84,7 @@ public sealed class AgenticSearchExecutorTests : IDisposable
         await AgenticSearchExecutor.RunAsync(
             "find me docs", maxDocuments: 7, logger: _logger, database: "db1", container: "corpus-x");
 
+        capturedPath.Should().Be("/agentic_search");
         capturedBody.Should().NotBeNull();
         using var doc = JsonDocument.Parse(capturedBody!);
         doc.RootElement.GetProperty("query").GetString().Should().Be("find me docs");

@@ -5,7 +5,7 @@ agent uses an LLM to refine the query through multiple rounds of searching and
 document reading.
 
 The .NET toolkit validates the tool arguments, sends an HTTP
-`POST /search` request, and returns the service's response body.
+`POST /agentic_search` request, and returns the service's response body.
 Connection failures and request timeouts produce JSON errors.
 
 *A separately running, compatible retrieval service is required.* Configure the
@@ -20,7 +20,7 @@ agent's retrieval behavior, Cosmos access, and models on that service.
        v
   MCPToolKit (.NET): AgenticSearch -> AgenticSearchExecutor
        |
-       | HTTP POST /search       <-- Response body
+                | HTTP POST /agentic_search  <-- Response body
        v
      External retrieval service
 ```

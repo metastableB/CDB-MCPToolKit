@@ -61,7 +61,7 @@ public static class AgenticSearchExecutor
 
     /// <summary>
     /// Run a single <c>cosmos-retriever</c> search by calling the FastAPI
-    /// <c>POST /search</c> endpoint.
+    /// <c>POST /agentic_search</c> endpoint.
     /// </summary>
     /// <param name="query">Natural-language information need.</param>
     /// <param name="maxDocuments">Cap on the number of curated docs returned (1–50).</param>
@@ -101,7 +101,7 @@ public static class AgenticSearchExecutor
         {
             return ErrorEnvelope($"{BaseUrlEnvVar} must be an absolute HTTP or HTTPS URL.");
         }
-        var requestUri = $"{baseUrl}/search";
+        var requestUri = $"{baseUrl}/agentic_search";
 
         var payload = new Dictionary<string, object?>
         {
