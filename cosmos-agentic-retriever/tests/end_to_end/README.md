@@ -60,3 +60,19 @@ RUN_COSMOS_LIVE=1 python -m pytest tests/end_to_end/test_agent_integration.py -q
 
 This calls a real model and Cosmos through the Python test client. It does not
 run the .NET MCP server.
+
+To test the full MCP path, put the .NET 9 SDK on `PATH` and run:
+
+```bash
+RUN_COSMOS_LIVE=1 RUN_COSMOS_MCP_LIVE=1 python -m pytest \
+  tests/end_to_end/test_agent_integration.py -q
+```
+
+This starts and stops a loopback Python server and runs the .NET integration
+tests against it. Both MCP transports are checked for answers, document limits,
+container scope, rejected scopes, and concurrent requests. The model and Cosmos
+are real; the .NET host runs in-process with authentication bypassed. Results,
+including answers and documents, are saved to `artifacts/pr6-mcp-live.trx`.
+
+The .NET tests use this checkout's toolkit project. To test a separate checkout,
+set `COSMOS_TEST_MCP_PROJECT` to its toolkit `.csproj` path.

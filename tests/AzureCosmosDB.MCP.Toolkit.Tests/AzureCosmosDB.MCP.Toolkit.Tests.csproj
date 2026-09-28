@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <ToolkitProject Condition="'$(ToolkitProject)' == ''">$(MSBuildThisFileDirectory)..\..\src\AzureCosmosDB.MCP.Toolkit\AzureCosmosDB.MCP.Toolkit.csproj</ToolkitProject>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\AzureCosmosDB.MCP.Toolkit\AzureCosmosDB.MCP.Toolkit.csproj" />
+    <ProjectReference Include="$(ToolkitProject)" />
   </ItemGroup>
 
 </Project>
