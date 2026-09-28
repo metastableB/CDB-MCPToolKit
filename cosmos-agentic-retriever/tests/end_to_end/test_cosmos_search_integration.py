@@ -98,7 +98,10 @@ def test_full_text_returns_fixture_ids_text_and_schema(
         assert item["container"] == fixture.name
         assert item["retrieval_strategy"] == "full_text"
     if fixture.name == "nested-v1":
-        assert all(item["metadata"] == {"year": 2025} for item in result["documents"])
+        assert all(
+            item["additional_fields"] == {"/year": 2025}
+            for item in result["documents"]
+        )
 
 
 @pytest.mark.parametrize("limit", [1, 2, 5])
@@ -220,7 +223,7 @@ def test_real_corpus_query_returns_source_documents(
         }
         assert item["text"] and item["retrieval_strategy"] == "full_text"
         assert item["container"] == fixture.name
-        assert item["metadata"] == {"dataset_source": "beir-scifact"}
+        assert item["additional_fields"] == {"/source": "beir-scifact"}
     returned = {item["item_id"] for item in documents}
     recall = len(returned & query.relevant_ids) / len(query.relevant_ids)
     record_property("query_id", query.query_id)
