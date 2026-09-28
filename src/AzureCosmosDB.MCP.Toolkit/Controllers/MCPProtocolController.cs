@@ -276,6 +276,30 @@ public class MCPProtocolController : ControllerBase
                                         required = new string[] { "databaseId", "containerId", "searchText", "textProperty", "vectorProperty", "selectProperties" },
                                         additionalProperties = false
                                     }
+                                },
+                                new {
+                                    name = "agentic_search",
+                                    description = "Search using a multi-turn retrieval agent for Cosmos DB: rewrites the query and uses multiple rounds " +
+                                        "of searching and document reading to find relevant documents. Prefer it over vector_search/text_search for " +
+                                        "complex, ambiguous, or multi-hop questions where one-shot search might miss context. Pass a natural-language " +
+                                        "`query`; optionally set `database`/`container` to target a corpus and `maxDocuments` to cap results. " +
+                                        "The agent runs in a separate service where retrieval behavior, Cosmos access, and models are configured.",
+                                    inputSchema = new {
+                                        type = "object",
+                                        properties = new {
+                                            query = new { type = "string", description = "Natural-language information need to retrieve documents for", maxLength = 4096 },
+                                            maxDocuments = new { type = "integer", description = "Maximum number of curated documents to return (1-50, default 20)", minimum = 1, maximum = 50, @default = 20 },
+                                            database = new { type = "string", description = "Optional Cosmos database name override. " +
+                                                "If omitted, the retrieval service determines the database.", maxLength = 256 },
+                                            container = new { type = "string", description = "Optional Cosmos container to narrow the search to. " +
+                                                "If omitted, the retrieval service determines the search scope.", maxLength = 256 },
+                                            schemaOverride = new { type = "object", description = "Optional schema override as a JSON object " +
+                                                "(keys, where supported by the service: document_id_path, chunk_id_path, chunk_order_path, " +
+                                                "title_path, source_path, item_id_path, use_dunder_codec). Omit for no override." }
+                                        },
+                                        required = new string[] { "query" },
+                                        additionalProperties = false
+                                    }
                                 }
                             }
                         }
@@ -469,6 +493,13 @@ public class MCPProtocolController : ControllerBase
                 GetStringArg(args, "selectProperties"),
                 GetOptionalIntArg(args, "topN", 10),
                 cancellationToken),
+            "agentic_search" => await _cosmosDbTools.AgenticSearch(
+                GetStringArg(args, "query"),
+                GetOptionalIntArg(args, "maxDocuments", 20),
+                GetOptionalStringArg(args, "database"),
+                GetOptionalStringArg(args, "container"),
+                GetOptionalSchemaOverrideArg(args, "schemaOverride"),
+                cancellationToken),
             _ => throw new ArgumentException($"Unknown tool: {toolName}")
         };
     }
@@ -476,6 +507,32 @@ public class MCPProtocolController : ControllerBase
     private static string GetStringArg(Dictionary<string, object> args, string key)
     {
         return args.TryGetValue(key, out var value) ? value?.ToString() ?? "" : "";
+    }
+
+    private static string? GetOptionalStringArg(Dictionary<string, object> args, string key)
+    {
+        if (!args.TryGetValue(key, out var value)) return null;
+        var s = value?.ToString();
+        return string.IsNullOrWhiteSpace(s) ? null : s;
+    }
+
+    // schemaOverride may arrive as a JSON object (JsonElement) or a string. Return
+    // its JSON text form so it can be forwarded to the retriever, which parses it.
+    private static string? GetOptionalSchemaOverrideArg(Dictionary<string, object> args, string key)
+    {
+        if (!args.TryGetValue(key, out var value) || value is null) return null;
+        if (value is System.Text.Json.JsonElement el)
+        {
+            return el.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.Null => null,
+                System.Text.Json.JsonValueKind.String => el.GetString(),
+                System.Text.Json.JsonValueKind.Object => el.GetRawText(),
+                _ => el.GetRawText(),
+            };
+        }
+        var s = value.ToString();
+        return string.IsNullOrWhiteSpace(s) ? null : s;
     }
 
     private static int GetRequiredIntArg(Dictionary<string, object> args, string key)
